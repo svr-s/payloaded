@@ -27,9 +27,68 @@ pip install payloaded
 ## Quickstart
 
 ```python
+import pandas as pd
 import payloaded as pld
 
-# Coming soon in v0.1.0!
+# 1. Source flat tabular data
+df_source = pd.DataFrame([
+    {"Batch_Number": "B001", "Order_ID": "ORD_101", "Item_SKU": "SKU_01", "Quantity": 2},
+    {"Batch_Number": "B001", "Order_ID": "ORD_101", "Item_SKU": "SKU_02", "Quantity": 5},
+    {"Batch_Number": "B001", "Order_ID": "ORD_102", "Item_SKU": "SKU_03", "Quantity": 1},
+])
+
+# 2. Define your desired nested payload structure skeleton
+template = [
+    {
+        "batch_id": "{batch_id}",
+        "orders": [
+            {
+                "order_id": "{order_id}",
+                "line_items": [
+                    {"sku": "{sku}", "qty": "{qty}"}
+                ]
+            }
+        ]
+    }
+]
+
+# 3. Configure entity hierarchy, group keys, limits, and mappings
+config = {
+    "entities": [
+        {
+            "path": "root",
+            "repeat_limit": 20,
+            "group_by": ["batch_id"],
+            "mappings": [{"payload_key": "batch_id", "file_key": "Batch_Number"}],
+        },
+        {
+            "path": "orders",
+            "repeat_limit": 30,
+            "group_by": ["order_id"],
+            "mappings": [{"payload_key": "order_id", "file_key": "Order_ID"}],
+        },
+        {
+            "path": "orders.line_items",
+            "repeat_limit": 40,
+            "mappings": [
+                {"payload_key": "sku", "file_key": "Item_SKU"},
+                {"payload_key": "qty", "file_key": "Quantity", "type_cast": "int"},
+            ],
+        },
+    ]
+}
+
+# 4. Generate auditable payloads DataFrame
+df_payloads = pld.build_payloads(
+    source=df_source,
+    template=template,
+    config=config,
+    output_format="json_string"  # or "dict"
+)
+
+# 5. Verify zero data loss with mathematical reconciliation
+audit_report = pld.reconcile(df_payloads, expected_rows=len(df_source))
+print(audit_report.summary())
 ```
 
 ---
