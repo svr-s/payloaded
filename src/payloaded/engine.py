@@ -11,17 +11,50 @@ from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 from payloaded.template import PayloadTemplate, _render_value
 
 
+def _match_column_name(target: Union[str, int], df_columns: List[Any]) -> Optional[Any]:
+    """Match a column by exact name, integer index, or whitespace-stripped name."""
+    # 1. Exact match in df_columns
+    if target in df_columns:
+        return target
+
+    # 2. If target is an integer index pointing to position in df_columns
+    if isinstance(target, int) and 0 <= target < len(df_columns):
+        return df_columns[target]
+
+    target_str = str(target).strip()
+
+    # 3. Stripped string match against stringified column names
+    for col in df_columns:
+        if str(col).strip() == target_str:
+            return col
+
+    # 4. If target_str is digits (e.g. "0"), check if it indexes into df_columns
+    if target_str.isdigit():
+        idx = int(target_str)
+        if 0 <= idx < len(df_columns):
+            return df_columns[idx]
+
+    return None
+
+
 def _resolve_column(key: str, df_columns: List[str], mappings_by_payload_key: Dict[str, FieldMapping]) -> str:
-    """Resolve a group_by key into an actual DataFrame column name."""
-    if key in df_columns:
-        return key
-    if key in mappings_by_payload_key:
-        file_key = mappings_by_payload_key[key].file_key
-        if file_key in df_columns:
-            return file_key
+    """Resolve a group_by key (payload_key or source_key/index) into an actual DataFrame column name."""
+    cleaned_key = str(key).strip()
+
+    # 1. Primary: check if cleaned_key is a payload_key
+    if cleaned_key in mappings_by_payload_key:
+        source_key = mappings_by_payload_key[cleaned_key].source_key
+        matched = _match_column_name(source_key, df_columns)
+        if matched is not None:
+            return matched
+
+    # 2. Fallback: check if cleaned_key directly matches a DataFrame column or index
+    matched = _match_column_name(cleaned_key, df_columns)
+    if matched is not None:
+        return matched
+
     raise KeyError(
-        f"Grouping key '{key}' could not be resolved. "
-        f"Available columns: {df_columns}"
+        f"Grouping key '{key}' could not be resolved in DataFrame columns: {df_columns}"
     )
 
 
@@ -44,6 +77,7 @@ class HierarchyEngine:
         self.config = config
         self.template = template
         self.mappings_by_payload_key: Dict[str, FieldMapping] = {}
+        self.resolved_source_col: Dict[str, Optional[str]] = {}
         for entity in self.config.entities:
             for m in entity.mappings:
                 self.mappings_by_payload_key[m.payload_key] = m
@@ -57,15 +91,18 @@ class HierarchyEngine:
         if df.empty:
             return []
 
-        # Validate that mapped columns exist in df
+        # Validate and resolve mapped columns in df
         df_cols = list(df.columns)
+        self.resolved_source_col = {}
         for entity in self.config.entities:
             for m in entity.mappings:
-                if m.file_key not in df_cols:
+                matched = _match_column_name(m.source_key, df_cols)
+                if matched is None and m.default is None:
                     raise KeyError(
-                        f"Mapped source column '{m.file_key}' (for payload key '{m.payload_key}') "
+                        f"Mapped source column '{m.source_key}' (for payload key '{m.payload_key}') "
                         f"was not found in source columns: {df_cols}"
                     )
+                self.resolved_source_col[m.payload_key] = matched
 
         raw_template = self.template.get_template_clone()
         return self._generate_payloads(df, raw_template)
@@ -282,7 +319,12 @@ class HierarchyEngine:
         lookup: Dict[str, Any] = {}
         if entity:
             for m in entity.mappings:
-                lookup[m.payload_key] = source_record.get(m.file_key, m.default)
+                matched_col = self.resolved_source_col.get(m.payload_key)
+                if matched_col is not None and matched_col in source_record:
+                    val = source_record[matched_col]
+                    lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                else:
+                    lookup[m.payload_key] = m.default
         # Fallback to any matching key in source_record
         for k, v in source_record.items():
             if k not in lookup:

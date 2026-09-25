@@ -59,20 +59,20 @@ config = {
             "path": "root",
             "repeat_limit": 20,
             "group_by": ["batch_id"],
-            "mappings": [{"payload_key": "batch_id", "file_key": "Batch_Number"}],
+            "mappings": [{"payload_key": "batch_id", "source_key": "Batch_Number"}],
         },
         {
             "path": "orders",
             "repeat_limit": 30,
             "group_by": ["order_id"],
-            "mappings": [{"payload_key": "order_id", "file_key": "Order_ID"}],
+            "mappings": [{"payload_key": "order_id", "source_key": "Order_ID"}],
         },
         {
             "path": "orders.line_items",
             "repeat_limit": 40,
             "mappings": [
-                {"payload_key": "sku", "file_key": "Item_SKU"},
-                {"payload_key": "qty", "file_key": "Quantity", "type_cast": "int"},
+                {"payload_key": "sku", "source_key": "Item_SKU"},
+                {"payload_key": "qty", "source_key": "Quantity", "type_cast": "int"},
             ],
         },
     ]
