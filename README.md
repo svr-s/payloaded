@@ -27,7 +27,7 @@ pip install payloaded
 ## Quickstart
 
 ```python
-import payloaded as pl
+import payloaded as pld
 
 # Coming soon in v0.1.0!
 ```
