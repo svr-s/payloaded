@@ -39,6 +39,8 @@ venv.bak/
 .pytest_cache/
 .coverage
 htmlcov/
+Payloaded - Testing/
+* - Testing/
 
 # IDE & OS
 .DS_Store

@@ -42,3 +42,9 @@ Issues = "https://github.com/svr-s/payloaded/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/payloaded"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "Payloaded - Testing",
+    "* - Testing",
+]
