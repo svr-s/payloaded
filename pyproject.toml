@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "payloaded"
+version = "0.0.1"
+description = "Transform flat tabular data into nested, hierarchical API payloads with grouping and reconciliation."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "svr-s" }
+]
+keywords = ["api", "payload", "json", "pandas", "data-transformation", "batching"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "pandas>=1.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/svr-s/payloaded"
+Repository = "https://github.com/svr-s/payloaded"
+Issues = "https://github.com/svr-s/payloaded/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/payloaded"]
