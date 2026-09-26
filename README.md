@@ -219,6 +219,7 @@ config = {
 | `now(format)` | UTC timestamp generator | `now('%Y-%m-%dT%H:%M:%SZ')` |
 | `uuid()` | Generates unique UUID v4 | `uuid()` |
 | `int(val)` / `float(val)` / `str(val)` | Type casting | `int({qty})` |
+| `json(val)` | Parses string into native JSON object/array | `json({raw_orders})` |
 
 ---
 
@@ -341,6 +342,41 @@ location,batchnumber,orderid,ordername,ordervalue,orderid2,ordername2,ordervalue
 3. **Resilient to Missing/Jagged Columns**: If an export generated `orderid3` and `ordervalue3` but completely omitted the column `ordername3`, `payloaded` will **not crash**. It safely resolves missing columns to `null` (or omits them if `omit_if_blank: true`).
 4. **Empty Slot Pruning**: If an entity slot is completely empty for a row (e.g. only 2 orders present in a 5-slot file), blank entries are discarded automatically.
 5. **Universal Placement**: Can be used on **any entity level** across your payload hierarchy (child items, grandchildren, or root items).
+
+---
+
+## Cell Explode & Normalization (`source_column`)
+
+When data arrives with embedded/semi-structured objects packed directly inside a single column cell (e.g. JSON strings or Python dicts/lists), use `source_column` on the entity config to automatically explode and normalize them into child items:
+
+```json
+{
+  "path": "orders",
+  "source_column": "orders_raw",
+  "mappings": [
+    {
+      "payload_key": "id",
+      "source_key": "orderid*"
+    },
+    {
+      "payload_key": "amount",
+      "source_key": "ordervalue"
+    },
+    {
+      "payload_key": "name",
+      "source_key": "ordername",
+      "omit_if_blank": true
+    }
+  ]
+}
+```
+
+### Supported Cell Structures
+1. **List of Objects**: `[{"orderid": "ord1", "ordervalue": 100}, {"orderid": "ord2", "ordervalue": 200}]` $\rightarrow$ Unpacks directly into child records.
+2. **Sparse Dictionaries**: Combined with `"omit_if_blank": true`, missing keys in individual elements are cleanly omitted without failing.
+3. **Inconsistent Keys with Wildcards**: Wildcard source keys (e.g. `orderid*`) match fields inside the cell objects (e.g. matching `orderid` in element 1 and `orderid2` in element 2).
+4. **Key-Value Maps**: `{"ord1": "100", "ord2": "200"}` $\rightarrow$ Map dynamically via virtual keys `source_key: "__key__"` and `source_key: "__value__"`.
+5. **Raw JSON Passthrough**: If you want to retain the raw parsed JSON structure without decomposing it into child entities, use the `json({column})` formula function.
 
 ---
 

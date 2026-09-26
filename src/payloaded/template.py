@@ -16,6 +16,10 @@ PLACEHOLDER_REGEX = re.compile(r"\{([a-zA-Z0-9_\-\.]+)\}")
 
 def _cast_value(val: Any, type_cast: Optional[str] = None) -> Any:
     """Cast a value to the target type, handling pandas NA / None gracefully."""
+    if val is None:
+        return None
+    if isinstance(val, (list, dict)):
+        return val
     if pd.isna(val):
         return None
     if type_cast is None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from datetime import datetime, timezone
+import json
 import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import uuid
@@ -122,6 +123,28 @@ def _fn_date_format(val: Any, in_format: str, out_format: str) -> str:
     return dt.strftime(out_format)
 
 
+def _fn_json(val: Any) -> Any:
+    """Parse stringified JSON or Python dictionary/list into native objects."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    s = str(val).strip()
+    if s == "" or s.lower() == "nan" or s.lower() == "none" or s.lower() == "null":
+        return None
+    try:
+        return json.loads(s)
+    except Exception:
+        # Fallback to ast.literal_eval to safely handle single-quoted representations like [{'a': 1}]
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, (dict, list)):
+                return parsed
+        except Exception:
+            pass
+        raise FormulaEvaluationError(f"Value could not be parsed as valid JSON: {val}")
+
+
 BASE_FUNCTIONS: Dict[str, Callable[..., Any]] = {
     "upper": _fn_upper,
     "lower": _fn_lower,
@@ -142,6 +165,7 @@ BASE_FUNCTIONS: Dict[str, Callable[..., Any]] = {
     "now": _fn_now,
     "uuid": _fn_uuid,
     "date_format": _fn_date_format,
+    "json": _fn_json,
 }
 
 

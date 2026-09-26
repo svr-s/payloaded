@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import copy
+import json
 import math
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -158,6 +160,110 @@ def _is_unrolled_item_empty(rendered_dict: dict, entity: EntityConfig) -> bool:
     return not has_meaningful_value
 
 
+def _extract_cell_items(cell_val: Any) -> List[Dict[str, Any]]:
+    """Parse cell contents from a source_column into a list of record dictionaries.
+
+    Supports:
+    1. List of dicts: [{'orderid': 'ord1', ...}, ...]
+    2. Dict / Key-Value map: {'ord1': '100', 'ord2': '200'} -> [{'__key__': 'ord1', '__value__': '100'}, ...]
+    3. JSON or Python literal string representations of the above.
+    """
+    if cell_val is None:
+        return []
+    if isinstance(cell_val, (list, dict)):
+        parsed = cell_val
+    elif pd.isna(cell_val):
+        return []
+    else:
+        parsed: Any = cell_val
+    if isinstance(cell_val, str):
+        s = cell_val.strip()
+        if not s or s.lower() in ("nan", "none", "null", "[]", "{}"):
+            return []
+        try:
+            parsed = json.loads(s)
+        except Exception:
+            try:
+                parsed = ast.literal_eval(s)
+            except Exception:
+                return []
+
+    if isinstance(parsed, list):
+        items: List[Dict[str, Any]] = []
+        for elem in parsed:
+            if isinstance(elem, dict):
+                items.append(elem)
+            else:
+                items.append({"__value__": elem})
+        return items
+
+    elif isinstance(parsed, dict):
+        items = []
+        for k, v in parsed.items():
+            items.append({"__key__": k, "__value__": v, str(k): v})
+        return items
+
+    return []
+
+
+def _resolve_item_record(
+    entity: EntityConfig,
+    item_dict: Dict[Any, Any],
+    parent_record: Dict[Any, Any],
+) -> Dict[str, Any]:
+    """Map fields from an exploded cell dictionary into the record for hydration.
+
+    Supports exact keys, wildcards ('*') matching keys inside item_dict,
+    virtual keys ('__key__', '__value__'), and fallbacks to parent_record.
+    """
+    record: Dict[str, Any] = dict(parent_record)
+    # Merge item_dict keys
+    for k, v in item_dict.items():
+        record[k] = v
+
+    item_str_keys = [str(k) for k in item_dict.keys()]
+
+    for m in entity.mappings:
+        src = m.source_key
+        if src is None or str(src).strip() == "":
+            continue
+
+        src_str = str(src).strip()
+
+        # 1. Exact match in item_dict
+        if src in item_dict:
+            record[m.payload_key] = item_dict[src]
+            continue
+
+        # 2. Virtual keys: __key__, __value__
+        if src_str in ("__key__", "__value__") and src_str in item_dict:
+            record[m.payload_key] = item_dict[src_str]
+            continue
+
+        # 3. Wildcard matching inside item_dict (e.g. orderid* matches 'orderid' or 'orderid2')
+        if "*" in src_str:
+            escaped = re.escape(src_str).replace(r"\*", r"(.*)")
+            regex = re.compile(rf"^{escaped}$", re.IGNORECASE)
+            matched_val = None
+            found = False
+            for k in item_str_keys:
+                if regex.match(k):
+                    matched_val = item_dict[k]
+                    found = True
+                    break
+            if found:
+                record[m.payload_key] = matched_val
+                continue
+
+        # 4. Fallback to parent_record
+        if src in parent_record:
+            record[m.payload_key] = parent_record[src]
+        elif m.default is not None:
+            record[m.payload_key] = m.default
+
+    return record
+
+
 def _split_into_chunks(items: List[Any], chunk_size: Optional[int]) -> List[List[Any]]:
     """Split a list of items into chunks of max chunk_size.
 
@@ -227,6 +333,11 @@ class HierarchyEngine:
                     continue
 
                 if m.source_key is None or str(m.source_key).strip() == "":
+                    self.resolved_source_col[m.payload_key] = None
+                    continue
+
+                if entity.source_column:
+                    # Fields in entities that explode a cell come from that cell, not the root df columns
                     self.resolved_source_col[m.payload_key] = None
                     continue
 
@@ -396,6 +507,21 @@ class HierarchyEngine:
             child_id = f"{child_entity.path}_{id(sub_df)}"
 
         if not grandchildren:
+            # Check if this child entity explodes a single cell column
+            if child_entity.source_column:
+                matched_col = _match_column_name(child_entity.source_column, list(sub_df.columns))
+                items: List[Tuple[dict, int]] = []
+                for _, row in sub_df.iterrows():
+                    parent_rec = row.to_dict()
+                    cell_val = parent_rec.get(matched_col) if matched_col else None
+                    cell_items = _extract_cell_items(cell_val)
+                    for item_dict in cell_items:
+                        item_rec = _resolve_item_record(child_entity, item_dict, parent_rec)
+                        rendered = self._hydrate_dict(child_elem_template, item_rec, child_entity, parent_id=parent_id)
+                        if not _is_unrolled_item_empty(rendered, child_entity):
+                            items.append((rendered, 1))
+                return items
+
             # Check if this child entity uses wildcard unpivot
             if child_entity.has_wildcard_mappings:
                 tokens = _extract_wildcard_tokens(child_entity, list(sub_df.columns))
@@ -430,7 +556,20 @@ class HierarchyEngine:
 
         # Grandchild items
         gc_items: List[Tuple[dict, int]] = []
-        if primary_grandchild.has_wildcard_mappings:
+        if primary_grandchild.source_column:
+            matched_col = _match_column_name(primary_grandchild.source_column, list(sub_df.columns))
+            for _, row in sub_df.iterrows():
+                parent_rec = row.to_dict()
+                cell_val = parent_rec.get(matched_col) if matched_col else None
+                cell_items = _extract_cell_items(cell_val)
+                for item_dict in cell_items:
+                    item_rec = _resolve_item_record(primary_grandchild, item_dict, parent_rec)
+                    rendered_gc = self._hydrate_dict(
+                        gc_elem_template, item_rec, primary_grandchild, parent_id=child_id
+                    )
+                    if not _is_unrolled_item_empty(rendered_gc, primary_grandchild):
+                        gc_items.append((rendered_gc, 1))
+        elif primary_grandchild.has_wildcard_mappings:
             tokens = _extract_wildcard_tokens(primary_grandchild, list(sub_df.columns))
             for _, row in sub_df.iterrows():
                 base_rec = row.to_dict()
@@ -496,7 +635,18 @@ class HierarchyEngine:
         if is_root_list:
             root_limit = root_entity.repeat_limit if root_entity else None
             items: List[Tuple[dict, int]] = []
-            if root_entity and root_entity.has_wildcard_mappings:
+            if root_entity and root_entity.source_column:
+                matched_col = _match_column_name(root_entity.source_column, list(df.columns))
+                for _, row in df.iterrows():
+                    parent_rec = row.to_dict()
+                    cell_val = parent_rec.get(matched_col) if matched_col else None
+                    cell_items = _extract_cell_items(cell_val)
+                    for item_dict in cell_items:
+                        item_rec = _resolve_item_record(root_entity, item_dict, parent_rec)
+                        rendered = self._hydrate_dict(elem_template, item_rec, root_entity, parent_id="root")
+                        if not _is_unrolled_item_empty(rendered, root_entity):
+                            items.append((rendered, 1))
+            elif root_entity and root_entity.has_wildcard_mappings:
                 tokens = _extract_wildcard_tokens(root_entity, list(df.columns))
                 for _, row in df.iterrows():
                     base_rec = row.to_dict()
@@ -515,7 +665,19 @@ class HierarchyEngine:
             return results
         else:
             # Single object per row
-            if root_entity and root_entity.has_wildcard_mappings:
+            if root_entity and root_entity.source_column:
+                matched_col = _match_column_name(root_entity.source_column, list(df.columns))
+                for _, row in df.iterrows():
+                    parent_rec = row.to_dict()
+                    cell_val = parent_rec.get(matched_col) if matched_col else None
+                    cell_items = _extract_cell_items(cell_val)
+                    for item_dict in cell_items:
+                        item_rec = _resolve_item_record(root_entity, item_dict, parent_rec)
+                        rendered = self._hydrate_dict(elem_template, item_rec, root_entity, parent_id="root")
+                        if not _is_unrolled_item_empty(rendered, root_entity):
+                            results.append((rendered, 1))
+                return results
+            elif root_entity and root_entity.has_wildcard_mappings:
                 tokens = _extract_wildcard_tokens(root_entity, list(df.columns))
                 for _, row in df.iterrows():
                     base_rec = row.to_dict()

@@ -89,6 +89,7 @@ class EntityConfig:
     group_by: List[str] = field(default_factory=list)
     mappings: List[FieldMapping] = field(default_factory=list)
     omit_if_blank: bool = False
+    source_column: Optional[str] = None
 
     @property
     def normalized_path(self) -> str:
@@ -156,6 +157,7 @@ class EntityConfig:
             group_by=group_by,
             mappings=deduped_mappings,
             omit_if_blank=entity_omit,
+            source_column=str(data["source_column"]).strip() if data.get("source_column") else None,
         )
 
 
