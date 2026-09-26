@@ -305,6 +305,45 @@ If a row has `"SKU": "A1"` and empty cells for `Promo_Code` and `Gift_Message`, 
 
 ---
 
+## Wide-to-Long Wildcard Unpivot (`*`)
+
+Tabular exports often store repeating items horizontally across columns (wide format) rather than normalized across rows:
+```csv
+location,batchnumber,orderid,ordername,ordervalue,orderid2,ordername2,ordervalue2,orderid3,ordervalue3
+```
+
+`payloaded` supports automatic wide-to-nested unpivoting using **wildcard asterisks (`*`)** in `source_key`:
+
+```json
+{
+  "path": "orders",
+  "mappings": [
+    {
+      "payload_key": "id",
+      "source_key": "orderid*"
+    },
+    {
+      "payload_key": "name",
+      "source_key": "ordername*",
+      "omit_if_blank": true
+    },
+    {
+      "payload_key": "value",
+      "source_key": "ordervalue*"
+    }
+  ]
+}
+```
+
+### Key Advantages
+1. **Dynamic Token Discovery**: No need to hardcode `orderid1`, `orderid2`, ..., `orderid42`. It scans the DataFrame headers and discovers all present suffixes/tokens dynamically (e.g. `""`, `"2"`, `"3"`, ..., `"42"`).
+2. **Flexible Wildcard Placement**: Works for prefix, suffix, or infixed patterns (e.g. `orderid*`, `item_*_sku`, `line_*`).
+3. **Resilient to Missing/Jagged Columns**: If an export generated `orderid3` and `ordervalue3` but completely omitted the column `ordername3`, `payloaded` will **not crash**. It safely resolves missing columns to `null` (or omits them if `omit_if_blank: true`).
+4. **Empty Slot Pruning**: If an entity slot is completely empty for a row (e.g. only 2 orders present in a 5-slot file), blank entries are discarded automatically.
+5. **Universal Placement**: Can be used on **any entity level** across your payload hierarchy (child items, grandchildren, or root items).
+
+---
+
 ## Output DataFrame Structure
 
 The resulting DataFrame contains 7 canonical columns for end-to-end traceability and Postman/API dispatch:

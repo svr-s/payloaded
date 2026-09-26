@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import pandas as pd
 
 from payloaded.expressions import GeneratorContext
@@ -69,6 +69,93 @@ def _resolve_column(key: str, df_columns: List[str], mappings_by_payload_key: Di
     raise KeyError(
         f"Grouping key '{key}' could not be resolved in DataFrame columns: {df_columns}"
     )
+
+
+def _extract_wildcard_tokens(entity: EntityConfig, df_columns: List[Any]) -> List[str]:
+    """Scan DataFrame columns against wildcard source_keys in entity mappings and return sorted tokens.
+
+    Supports patterns like 'orderid*' or 'order_*_id'. Tokens are naturally sorted so
+    that numeric tokens like '2', '3', '10' sort in correct ascending numerical order.
+    """
+    str_cols = [str(c).strip() for c in df_columns]
+    tokens_set: Set[str] = set()
+
+    for m in entity.mappings:
+        if isinstance(m.source_key, str) and "*" in m.source_key:
+            pattern_str = m.source_key.strip()
+            # Escape regex special characters except '*'
+            escaped = re.escape(pattern_str).replace(r"\*", r"(.*)")
+            regex = re.compile(rf"^{escaped}$", re.IGNORECASE)
+            for col in str_cols:
+                match = regex.match(col)
+                if match:
+                    tokens_set.add(match.group(1))
+
+    if not tokens_set:
+        return []
+
+    # Sort naturally: blank string first, then integer if numeric, else string
+    def _sort_key(t: str) -> Tuple[int, Union[int, str]]:
+        if t == "":
+            return (0, 0)
+        clean = t.lstrip("_- ")
+        if clean.isdigit():
+            return (1, int(clean))
+        if t.isdigit():
+            return (1, int(t))
+        return (2, t.lower())
+
+    return sorted(tokens_set, key=_sort_key)
+
+
+def _resolve_wildcard_record(
+    entity: EntityConfig,
+    base_record: Dict[Any, Any],
+    token: str,
+    df_columns: List[Any],
+) -> Dict[str, Any]:
+    """Construct an unrolled row dictionary for a specific wildcard token.
+
+    Resolves wildcards in source_key (e.g. 'orderid*' with token '2' -> 'orderid2').
+    If a column does not exist in the source DataFrame (e.g. missing 'ordername3'),
+    it gracefully sets the value to None without raising errors.
+    """
+    record: Dict[str, Any] = dict(base_record)
+    for m in entity.mappings:
+        if isinstance(m.source_key, str) and "*" in m.source_key:
+            col_name = m.source_key.strip().replace("*", token)
+            matched_col = _match_column_name(col_name, df_columns)
+            if matched_col is not None and matched_col in base_record:
+                record[m.payload_key] = base_record[matched_col]
+            else:
+                record[m.payload_key] = m.default
+        elif m.source_key is not None and str(m.source_key).strip() != "":
+            matched_col = _match_column_name(m.source_key, df_columns)
+            if matched_col is not None and matched_col in base_record:
+                record[m.payload_key] = base_record[matched_col]
+            else:
+                record[m.payload_key] = m.default
+    return record
+
+
+def _is_unrolled_item_empty(rendered_dict: dict, entity: EntityConfig) -> bool:
+    """Check if all values in an unrolled item are blank/empty or if any required fields are missing."""
+    # If the dictionary is completely empty (all omitted)
+    if not rendered_dict:
+        return True
+
+    # Check if every scalar value is blank
+    has_meaningful_value = False
+    for k, v in rendered_dict.items():
+        if isinstance(v, (dict, list)):
+            if len(v) > 0:
+                has_meaningful_value = True
+                break
+        elif not _is_blank(v):
+            has_meaningful_value = True
+            break
+
+    return not has_meaningful_value
 
 
 def _split_into_chunks(items: List[Any], chunk_size: Optional[int]) -> List[List[Any]]:
@@ -140,6 +227,11 @@ class HierarchyEngine:
                     continue
 
                 if m.source_key is None or str(m.source_key).strip() == "":
+                    self.resolved_source_col[m.payload_key] = None
+                    continue
+
+                if isinstance(m.source_key, str) and "*" in m.source_key:
+                    # Wildcard mappings are dynamically resolved per token during hydration
                     self.resolved_source_col[m.payload_key] = None
                     continue
 
@@ -304,6 +396,19 @@ class HierarchyEngine:
             child_id = f"{child_entity.path}_{id(sub_df)}"
 
         if not grandchildren:
+            # Check if this child entity uses wildcard unpivot
+            if child_entity.has_wildcard_mappings:
+                tokens = _extract_wildcard_tokens(child_entity, list(sub_df.columns))
+                items: List[Tuple[dict, int]] = []
+                for _, row in sub_df.iterrows():
+                    base_rec = row.to_dict()
+                    for token in tokens:
+                        token_rec = _resolve_wildcard_record(child_entity, base_rec, token, list(sub_df.columns))
+                        rendered = self._hydrate_dict(child_elem_template, token_rec, child_entity, parent_id=parent_id)
+                        if not _is_unrolled_item_empty(rendered, child_entity):
+                            items.append((rendered, 1))
+                return items
+
             # Leaf level: if child entity does not group, each row is a distinct item
             if not child_entity.group_by and len(sub_df) > 1:
                 items: List[Tuple[dict, int]] = []
@@ -324,30 +429,42 @@ class HierarchyEngine:
         gc_elem_template = gc_template_list[0] if isinstance(gc_template_list, list) and gc_template_list else {}
 
         # Grandchild items
-        gc_group_cols = []
-        if primary_grandchild.group_by:
-            gc_group_cols = [
-                _resolve_column(k, list(sub_df.columns), self.mappings_by_payload_key)
-                for k in primary_grandchild.group_by
-            ]
-
         gc_items: List[Tuple[dict, int]] = []
-        if gc_group_cols:
-            grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
-            for _, gc_df in grouped:
-                row_record = gc_df.iloc[0].to_dict()
-                rendered_gc = self._hydrate_dict(
-                    gc_elem_template, row_record, primary_grandchild, parent_id=child_id
-                )
-                gc_items.append((rendered_gc, len(gc_df)))
-        else:
-            # Every row is a grandchild item
+        if primary_grandchild.has_wildcard_mappings:
+            tokens = _extract_wildcard_tokens(primary_grandchild, list(sub_df.columns))
             for _, row in sub_df.iterrows():
-                row_record = row.to_dict()
-                rendered_gc = self._hydrate_dict(
-                    gc_elem_template, row_record, primary_grandchild, parent_id=child_id
-                )
-                gc_items.append((rendered_gc, 1))
+                base_rec = row.to_dict()
+                for token in tokens:
+                    token_rec = _resolve_wildcard_record(primary_grandchild, base_rec, token, list(sub_df.columns))
+                    rendered_gc = self._hydrate_dict(
+                        gc_elem_template, token_rec, primary_grandchild, parent_id=child_id
+                    )
+                    if not _is_unrolled_item_empty(rendered_gc, primary_grandchild):
+                        gc_items.append((rendered_gc, 1))
+        else:
+            gc_group_cols = []
+            if primary_grandchild.group_by:
+                gc_group_cols = [
+                    _resolve_column(k, list(sub_df.columns), self.mappings_by_payload_key)
+                    for k in primary_grandchild.group_by
+                ]
+
+            if gc_group_cols:
+                grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
+                for _, gc_df in grouped:
+                    row_record = gc_df.iloc[0].to_dict()
+                    rendered_gc = self._hydrate_dict(
+                        gc_elem_template, row_record, primary_grandchild, parent_id=child_id
+                    )
+                    gc_items.append((rendered_gc, len(gc_df)))
+            else:
+                # Every row is a grandchild item
+                for _, row in sub_df.iterrows():
+                    row_record = row.to_dict()
+                    rendered_gc = self._hydrate_dict(
+                        gc_elem_template, row_record, primary_grandchild, parent_id=child_id
+                    )
+                    gc_items.append((rendered_gc, 1))
 
         # Chunk grandchildren by primary_grandchild.repeat_limit
         gc_chunks = _split_into_chunks(gc_items, primary_grandchild.repeat_limit)
@@ -379,19 +496,40 @@ class HierarchyEngine:
         if is_root_list:
             root_limit = root_entity.repeat_limit if root_entity else None
             items: List[Tuple[dict, int]] = []
-            for _, row in df.iterrows():
-                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
-                items.append((rendered, 1))
+            if root_entity and root_entity.has_wildcard_mappings:
+                tokens = _extract_wildcard_tokens(root_entity, list(df.columns))
+                for _, row in df.iterrows():
+                    base_rec = row.to_dict()
+                    for token in tokens:
+                        token_rec = _resolve_wildcard_record(root_entity, base_rec, token, list(df.columns))
+                        rendered = self._hydrate_dict(elem_template, token_rec, root_entity, parent_id="root")
+                        if not _is_unrolled_item_empty(rendered, root_entity):
+                            items.append((rendered, 1))
+            else:
+                for _, row in df.iterrows():
+                    rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
+                    items.append((rendered, 1))
             chunks = _split_into_chunks(items, root_limit)
             for chunk in chunks:
                 results.append(([item[0] for item in chunk], len(chunk)))
             return results
         else:
             # Single object per row
-            for _, row in df.iterrows():
-                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
-                results.append((rendered, 1))
-            return results
+            if root_entity and root_entity.has_wildcard_mappings:
+                tokens = _extract_wildcard_tokens(root_entity, list(df.columns))
+                for _, row in df.iterrows():
+                    base_rec = row.to_dict()
+                    for token in tokens:
+                        token_rec = _resolve_wildcard_record(root_entity, base_rec, token, list(df.columns))
+                        rendered = self._hydrate_dict(elem_template, token_rec, root_entity, parent_id="root")
+                        if not _is_unrolled_item_empty(rendered, root_entity):
+                            results.append((rendered, 1))
+                return results
+            else:
+                for _, row in df.iterrows():
+                    rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
+                    results.append((rendered, 1))
+                return results
 
     def _hydrate_dict(
         self,
@@ -418,6 +556,9 @@ class HierarchyEngine:
                     matched_col = self.resolved_source_col.get(m.payload_key)
                     if matched_col is not None and matched_col in source_record:
                         val = source_record[matched_col]
+                        lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                    elif m.payload_key in source_record:
+                        val = source_record[m.payload_key]
                         lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
                     else:
                         lookup[m.payload_key] = m.default

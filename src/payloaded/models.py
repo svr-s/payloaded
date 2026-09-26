@@ -98,6 +98,14 @@ class EntityConfig:
             return "root"
         return p
 
+    @property
+    def has_wildcard_mappings(self) -> bool:
+        """Check if any mapping contains a wildcard '*' in source_key."""
+        for m in self.mappings:
+            if isinstance(m.source_key, str) and "*" in m.source_key:
+                return True
+        return False
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> EntityConfig:
         """Create an EntityConfig instance from a raw dictionary, deduplicating mappings."""
