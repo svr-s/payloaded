@@ -170,6 +170,69 @@ config = {
 
 ---
 
+## Formula & Expression Engine
+
+`payloaded` includes a sandboxed, zero-dependency AST formula engine (no `eval()`) that allows you to transform, concatenate, slice, and generate values directly in your configuration:
+
+```json
+{
+  "payload_key": "tracking_code",
+  "formula": "lower(strip({Location}))[1:5] & '-' & replace(strip({Batch_Number}), ':', '')"
+}
+```
+
+### 1. Built-in Function Reference
+
+| Function | Description | Example |
+|---|---|---|
+| `upper(val)` / `lower(val)` | Case transformations | `upper({status})` |
+| `strip(val)` / `trim(val)` | Whitespace trimming | `strip({code})` |
+| `replace(val, old, new)` | Substring replacement | `replace({phone}, '-', '')` |
+| `slice(val, start, end)` or `[start:end]` | Native slicing | `{sku}[0:4]` |
+| `lpad(val, len, char)` / `rpad(...)` | String padding | `lpad({id}, 5, '0')` $\rightarrow$ `'00042'` |
+| `coalesce(a, b, ...)` | First non-empty value | `coalesce({alt_phone}, {phone}, 'N/A')` |
+| `date_format(val, in_fmt, out_fmt)` | Date format conversion | `date_format({dt}, '%Y-%m-%d', '%d/%m/%Y')` |
+| `now(format)` | UTC timestamp generator | `now('%Y-%m-%dT%H:%M:%SZ')` |
+| `uuid()` | Generates unique UUID v4 | `uuid()` |
+| `int(val)` / `float(val)` / `str(val)` | Type casting | `int({qty})` |
+
+---
+
+## Sequence Counters & Scoping
+
+Child entities in API payloads (e.g. invoice lines, order items) frequently require auto-incrementing line numbers that don't exist in source CSVs. `payloaded` provides stateful sequence generators with explicit scoping:
+
+```python
+sequence(start=1, step=1, scope="parent")   # Default: Resets per parent entity
+sequence(start=100, step=1, scope="global") # Never resets: counts continuously across all payloads
+```
+
+### Scoping Behavior
+
+| Scope | Under `line_items` | Under `orders` | Across Split Chunks |
+|---|---|---|---|
+| **`parent`** *(default)* | Resets to `start` for **each Order** | Resets to `start` for **each Batch** | **Continues across chunks** (e.g. Order 101 chunk 1 has lines 1–40; chunk 2 continues with 41–80; next Order 102 resets to 1) |
+| **`global`** | Counts continuously across all rows | Counts continuously across all rows | Never resets (e.g. 100, 101, 102...) |
+
+#### Example: Line Item Numbering
+```json
+{
+  "path": "orders.line_items",
+  "mappings": [
+    {
+      "payload_key": "line_number",
+      "formula": "sequence(start=1, scope='parent')"
+    },
+    {
+      "payload_key": "sku",
+      "source_key": "SKU"
+    }
+  ]
+}
+```
+
+---
+
 ## Output DataFrame Structure
 
 The resulting DataFrame contains 7 canonical columns for end-to-end traceability and Postman/API dispatch:
@@ -189,4 +252,5 @@ The resulting DataFrame contains 7 canonical columns for end-to-end traceability
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 

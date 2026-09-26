@@ -6,6 +6,13 @@ hierarchical API payloads with grouping and reconciliation.
 
 from payloaded.audit import AuditReport, ReconciliationError, reconcile
 from payloaded.builder import PayloadBuilder, build_payloads
+from payloaded.expressions import (
+    CompiledFormula,
+    FormulaError,
+    FormulaEvaluationError,
+    FormulaSecurityError,
+    GeneratorContext,
+)
 from payloaded.models import ConditionConfig, EntityConfig, FieldMapping, PayloadConfig
 
 __version__ = "0.0.1"
@@ -21,4 +28,10 @@ __all__ = [
     "ConditionConfig",
     "EntityConfig",
     "FieldMapping",
+    "CompiledFormula",
+    "GeneratorContext",
+    "FormulaError",
+    "FormulaSecurityError",
+    "FormulaEvaluationError",
 ]
+

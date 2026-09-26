@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
 from payloaded.engine import HierarchyEngine, _match_column_name
+from payloaded.expressions import GeneratorContext
 from payloaded.models import ConditionConfig, PayloadConfig
 from payloaded.template import PayloadTemplate
 
@@ -43,6 +44,7 @@ class ConditionRouter:
     def __init__(self, config: PayloadConfig, default_template: Optional[Any] = None):
         self.config = config
         self.default_template = default_template
+        self.gen_context = GeneratorContext()
 
         # Validate that conditions exist
         if not self.config.conditions:
@@ -75,7 +77,7 @@ class ConditionRouter:
             if template_src is None:
                 raise ValueError("No payload_template provided in condition or call.")
             template = PayloadTemplate(template_src)
-            engine = HierarchyEngine(primary_condition.entities, template)
+            engine = HierarchyEngine(primary_condition.entities, template, gen_context=self.gen_context)
             results = engine.process_dataframe(df)
             rule_str = ", ".join(primary_condition.condition_rule)
             return [(data, count, rule_str, "") for data, count in results]
@@ -123,7 +125,7 @@ class ConditionRouter:
                     f"Condition {cond_idx + 1} ({rule_label or 'unconditional'}) has no payload_template."
                 )
             template = PayloadTemplate(template_src)
-            engine = HierarchyEngine(condition.entities, template)
+            engine = HierarchyEngine(condition.entities, template, gen_context=self.gen_context)
 
             # Preserve source order of distinct values
             distinct_values = matched_df[matched_col].dropna().unique().tolist()

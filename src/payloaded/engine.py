@@ -7,6 +7,7 @@ import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
 
+from payloaded.expressions import GeneratorContext
 from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 from payloaded.template import PayloadTemplate, _render_value
 
@@ -71,15 +72,21 @@ def _split_into_chunks(items: List[Any], chunk_size: Optional[int]) -> List[List
 
 
 class HierarchyEngine:
-    """Manages multi-level data hierarchy, grouping, and batch chunking."""
+    """Manages multi-level data hierarchy, grouping, batch chunking, and formula evaluation."""
 
-    def __init__(self, entities: Union[List[EntityConfig], PayloadConfig], template: PayloadTemplate):
+    def __init__(
+        self,
+        entities: Union[List[EntityConfig], PayloadConfig],
+        template: PayloadTemplate,
+        gen_context: Optional[GeneratorContext] = None,
+    ):
         if isinstance(entities, PayloadConfig):
             self.entities = entities.entities
         else:
             self.entities = entities
 
         self.template = template
+        self.gen_context = gen_context or GeneratorContext()
         self.mappings_by_payload_key: Dict[str, FieldMapping] = {}
         self.resolved_source_col: Dict[str, Optional[str]] = {}
         for entity in self.entities:
@@ -108,6 +115,22 @@ class HierarchyEngine:
         self.resolved_source_col = {}
         for entity in self.entities:
             for m in entity.mappings:
+                if m.formula:
+                    if m.compiled_formula:
+                        for ref_col in m.compiled_formula.referenced_columns:
+                            matched = _match_column_name(ref_col, df_cols)
+                            if matched is None:
+                                raise KeyError(
+                                    f"Column '{ref_col}' referenced in formula '{m.formula}' "
+                                    f"was not found in source columns: {df_cols}"
+                                )
+                    self.resolved_source_col[m.payload_key] = None
+                    continue
+
+                if m.source_key is None or str(m.source_key).strip() == "":
+                    self.resolved_source_col[m.payload_key] = None
+                    continue
+
                 matched = _match_column_name(m.source_key, df_cols)
                 if matched is None and m.default is None:
                     raise KeyError(
@@ -177,17 +200,27 @@ class HierarchyEngine:
         child_entities: List[EntityConfig],
     ) -> List[Tuple[dict, int]]:
         """Process a single root element (e.g. one batch) down through its nested children."""
+        root_record = group_df.iloc[0].to_dict()
+        root_group_cols = []
+        if root_entity and root_entity.group_by:
+            root_group_cols = [
+                _resolve_column(k, list(group_df.columns), self.mappings_by_payload_key)
+                for k in root_entity.group_by
+            ]
+        if root_group_cols:
+            root_id = "_".join(str(root_record.get(col, "")) for col in root_group_cols)
+        else:
+            root_id = "root"
+
         # Find direct child entities whose path is a top-level key in elem_template
-        # Example: path == "orders"
         direct_children = [e for e in child_entities if "." not in e.path]
 
         if not direct_children:
             # Single root element with all rows in group_df
-            rendered = self._hydrate_dict(elem_template, group_df.iloc[0].to_dict(), root_entity)
+            rendered = self._hydrate_dict(elem_template, root_record, root_entity, parent_id="root")
             return [(rendered, len(group_df))]
 
         # Handle direct children (e.g. orders)
-        # Note: In standard payloads, there is typically one primary repeating array at Level 1
         primary_child = direct_children[0]
         child_path = primary_child.path  # e.g. "orders"
         child_template_list = elem_template.get(child_path, [{}])
@@ -210,10 +243,14 @@ class HierarchyEngine:
         if child_group_cols:
             grouped = group_df.groupby(child_group_cols, sort=False, dropna=False)
             for _, sub_df in grouped:
-                c_items = self._process_child_element(sub_df, child_elem_template, primary_child, grandchildren)
+                c_items = self._process_child_element(
+                    sub_df, child_elem_template, primary_child, grandchildren, parent_id=root_id
+                )
                 child_items.extend(c_items)
         else:
-            c_items = self._process_child_element(group_df, child_elem_template, primary_child, grandchildren)
+            c_items = self._process_child_element(
+                group_df, child_elem_template, primary_child, grandchildren, parent_id=root_id
+            )
             child_items.extend(c_items)
 
         # Chunk child items by primary_child.repeat_limit
@@ -221,12 +258,11 @@ class HierarchyEngine:
 
         # For each child chunk, create a clone of the root element
         results: List[Tuple[dict, int]] = []
-        root_record = group_df.iloc[0].to_dict()
 
         for chunk in child_chunks:
             root_copy = copy.deepcopy(elem_template)
             # Hydrate root scalars
-            hydrated_root = self._hydrate_dict(root_copy, root_record, root_entity)
+            hydrated_root = self._hydrate_dict(root_copy, root_record, root_entity, parent_id="root")
             # Inject chunk of child items
             hydrated_root[child_path] = [item[0] for item in chunk]
             chunk_rows = sum(item[1] for item in chunk)
@@ -240,13 +276,33 @@ class HierarchyEngine:
         child_elem_template: dict,
         child_entity: EntityConfig,
         grandchildren: List[EntityConfig],
+        parent_id: str = "root",
     ) -> List[Tuple[dict, int]]:
         """Process a child element (e.g. an order) and its grandchildren (e.g. line_items)."""
+        child_record = sub_df.iloc[0].to_dict()
+        child_group_cols = []
+        if child_entity.group_by:
+            child_group_cols = [
+                _resolve_column(k, list(sub_df.columns), self.mappings_by_payload_key)
+                for k in child_entity.group_by
+            ]
+        if child_group_cols:
+            child_id = "_".join(str(child_record.get(col, "")) for col in child_group_cols)
+        else:
+            child_id = f"{child_entity.path}_{id(sub_df)}"
+
         if not grandchildren:
-            # Leaf level
-            record = sub_df.iloc[0].to_dict()
-            rendered = self._hydrate_dict(child_elem_template, record, child_entity)
-            return [(rendered, len(sub_df))]
+            # Leaf level: if child entity does not group, each row is a distinct item
+            if not child_entity.group_by and len(sub_df) > 1:
+                items: List[Tuple[dict, int]] = []
+                for _, row in sub_df.iterrows():
+                    record = row.to_dict()
+                    rendered = self._hydrate_dict(child_elem_template, record, child_entity, parent_id=parent_id)
+                    items.append((rendered, 1))
+                return items
+            else:
+                rendered = self._hydrate_dict(child_elem_template, child_record, child_entity, parent_id=parent_id)
+                return [(rendered, len(sub_df))]
 
         primary_grandchild = grandchildren[0]
         # Relative path under child: e.g. "orders.line_items" -> "line_items"
@@ -268,24 +324,29 @@ class HierarchyEngine:
             grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
             for _, gc_df in grouped:
                 row_record = gc_df.iloc[0].to_dict()
-                rendered_gc = self._hydrate_dict(gc_elem_template, row_record, primary_grandchild)
+                rendered_gc = self._hydrate_dict(
+                    gc_elem_template, row_record, primary_grandchild, parent_id=child_id
+                )
                 gc_items.append((rendered_gc, len(gc_df)))
         else:
             # Every row is a grandchild item
             for _, row in sub_df.iterrows():
                 row_record = row.to_dict()
-                rendered_gc = self._hydrate_dict(gc_elem_template, row_record, primary_grandchild)
+                rendered_gc = self._hydrate_dict(
+                    gc_elem_template, row_record, primary_grandchild, parent_id=child_id
+                )
                 gc_items.append((rendered_gc, 1))
 
         # Chunk grandchildren by primary_grandchild.repeat_limit
         gc_chunks = _split_into_chunks(gc_items, primary_grandchild.repeat_limit)
 
         results: List[Tuple[dict, int]] = []
-        child_record = sub_df.iloc[0].to_dict()
 
         for chunk in gc_chunks:
             child_copy = copy.deepcopy(child_elem_template)
-            hydrated_child = self._hydrate_dict(child_copy, child_record, child_entity)
+            hydrated_child = self._hydrate_dict(
+                child_copy, child_record, child_entity, parent_id=parent_id
+            )
             hydrated_child[gc_key] = [item[0] for item in chunk]
             chunk_rows = sum(item[1] for item in chunk)
             results.append((hydrated_child, chunk_rows))
@@ -307,7 +368,7 @@ class HierarchyEngine:
             root_limit = root_entity.repeat_limit if root_entity else None
             items: List[Tuple[dict, int]] = []
             for _, row in df.iterrows():
-                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity)
+                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
                 items.append((rendered, 1))
             chunks = _split_into_chunks(items, root_limit)
             for chunk in chunks:
@@ -316,7 +377,7 @@ class HierarchyEngine:
         else:
             # Single object per row
             for _, row in df.iterrows():
-                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity)
+                rendered = self._hydrate_dict(elem_template, row.to_dict(), root_entity, parent_id="root")
                 results.append((rendered, 1))
             return results
 
@@ -325,18 +386,29 @@ class HierarchyEngine:
         template_obj: dict,
         source_record: dict,
         entity: Optional[EntityConfig],
+        parent_id: str = "root",
+        payload_index: int = 0,
     ) -> dict:
         """Recursively hydrate scalar values in a template dictionary."""
         # Create a lookup mapping for this entity or global
         lookup: Dict[str, Any] = {}
         if entity:
             for m in entity.mappings:
-                matched_col = self.resolved_source_col.get(m.payload_key)
-                if matched_col is not None and matched_col in source_record:
-                    val = source_record[matched_col]
-                    lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                if m.formula and m.compiled_formula:
+                    val = m.compiled_formula.evaluate(
+                        source_record,
+                        gen_context=self.gen_context,
+                        parent_id=parent_id,
+                        payload_index=payload_index,
+                    )
+                    lookup[m.payload_key] = val
                 else:
-                    lookup[m.payload_key] = m.default
+                    matched_col = self.resolved_source_col.get(m.payload_key)
+                    if matched_col is not None and matched_col in source_record:
+                        val = source_record[matched_col]
+                        lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                    else:
+                        lookup[m.payload_key] = m.default
         # Fallback to any matching key in source_record
         for k, v in source_record.items():
             if k not in lookup:
@@ -345,10 +417,11 @@ class HierarchyEngine:
         hydrated = {}
         for key, val in template_obj.items():
             if isinstance(val, dict):
-                hydrated[key] = self._hydrate_dict(val, source_record, entity)
+                hydrated[key] = self._hydrate_dict(val, source_record, entity, parent_id, payload_index)
             elif isinstance(val, list):
                 # Sub-arrays are populated during hierarchical processing
                 hydrated[key] = copy.deepcopy(val)
             else:
                 hydrated[key] = _render_value(val, lookup, self.mappings_by_payload_key)
         return hydrated
+

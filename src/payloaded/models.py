@@ -7,22 +7,33 @@ from typing import Any, Dict, List, Optional, Union
 import json
 from pathlib import Path
 
+from payloaded.expressions import CompiledFormula
+
 
 @dataclass
 class FieldMapping:
-    """Represents a mapping between a payload placeholder and a source column.
+    """Represents a mapping between a payload placeholder and a source column or formula.
 
     Attributes:
         payload_key: The placeholder name inside the JSON template (e.g. 'batch_id' for '{batch_id}').
         source_key: Column name (str) or 0-based column index (int) in the source tabular data.
+        formula: Optional expression string (e.g. 'lower(strip({col}))[0:5] & "-" & {id}').
         default: Optional fallback value if the column value is null or missing.
         type_cast: Optional type name ('int', 'float', 'str', 'bool') for explicit casting.
+        compiled_formula: Pre-compiled AST object for high-speed evaluation.
     """
 
     payload_key: str
-    source_key: Union[str, int]
+    source_key: Union[str, int] = ""
+    formula: Optional[str] = None
     default: Optional[Any] = None
     type_cast: Optional[str] = None
+    compiled_formula: Optional[CompiledFormula] = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Compile formula if provided."""
+        if self.formula and self.compiled_formula is None:
+            self.compiled_formula = CompiledFormula(self.formula)
 
     @property
     def file_key(self) -> str:
@@ -35,6 +46,9 @@ class FieldMapping:
         payload_raw = data.get("payload_key", "")
         payload_key = str(payload_raw).strip().strip("{}").strip()
 
+        formula_raw = data.get("formula")
+        formula = str(formula_raw).strip() if formula_raw is not None and str(formula_raw).strip() else None
+
         # Support 'source_key' (preferred) or 'file_key' (backward compatibility)
         source_raw = data.get("source_key", data.get("file_key", ""))
         if isinstance(source_raw, int):
@@ -42,14 +56,23 @@ class FieldMapping:
         elif isinstance(source_raw, str):
             source_key = source_raw.strip()
         else:
-            source_key = str(source_raw).strip()
+            source_key = str(source_raw).strip() if source_raw is not None else ""
+
+        # Auto-detect formula in source_key if formula is not explicitly set
+        if formula is None and isinstance(source_key, str) and (
+            "{" in source_key or "(" in source_key or "&" in source_key
+        ):
+            formula = source_key
+            source_key = ""
 
         return cls(
             payload_key=payload_key,
             source_key=source_key,
+            formula=formula,
             default=data.get("default"),
             type_cast=data.get("type_cast"),
         )
+
 
 
 @dataclass
@@ -101,12 +124,12 @@ class EntityConfig:
         for m in raw_mappings:
             if m.payload_key and m.payload_key in seen_payload_keys:
                 continue
-            if m.source_key != "" and m.source_key in seen_source_keys:
+            if not m.formula and m.source_key != "" and m.source_key in seen_source_keys:
                 continue
 
             if m.payload_key:
                 seen_payload_keys.add(m.payload_key)
-            if m.source_key != "":
+            if not m.formula and m.source_key != "":
                 seen_source_keys.add(m.source_key)
 
             deduped_mappings.append(m)
