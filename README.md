@@ -123,7 +123,7 @@ config = {
                     "repeat_limit": 100,
                     "mappings": [
                         {"payload_key": "sku", "source_key": "SKU"},
-                        {"payload_key": "qty", "source_key": "Qty", "type_cast": "int"},
+                        {"payload_key": "qty", "formula": "int(coalesce({Qty}, 0))"},
                     ],
                 },
             ],
@@ -254,6 +254,54 @@ sequence(start=100, step=1, scope="global") # Never resets: counts continuously 
   ]
 }
 ```
+
+---
+
+## Blank & Optional Field Handling (`omit_if_blank`)
+
+By default, missing or `NaN` values in your source data resolve to JSON `null`:
+```json
+{"sku": "A1", "discount_code": null, "notes": null}
+```
+
+If an upstream API schema rejects `null` or empty fields for optional keys, use **`omit_if_blank: true`**.
+
+### Behavior
+- **Default**: `false` (optional field, does not need to be specified).
+- **When `true`**: Evaluates whether the rendered value is `None`, `NaN`, empty string `""`, or whitespace-only `"   "`. If blank, the key is **completely omitted** from the hydrated JSON object.
+- **Valid 0 / False preservation**: Numeric `0`, `0.0`, and boolean `false` are considered valid data and are **never** omitted.
+- **Inheritance**: Can be configured at the **field level** or at the **entity level** (where all fields in that entity inherit the setting unless overridden).
+
+#### Example: Field-Level & Entity-Level Omission
+```json
+{
+  "path": "orders.line_items",
+  "omit_if_blank": false,
+  "mappings": [
+    {
+      "payload_key": "sku",
+      "source_key": "SKU"
+    },
+    {
+      "payload_key": "promo_code",
+      "source_key": "Promo_Code",
+      "omit_if_blank": true
+    },
+    {
+      "payload_key": "gift_message",
+      "source_key": "Gift_Message",
+      "omit_if_blank": true
+    }
+  ]
+}
+```
+If a row has `"SKU": "A1"` and empty cells for `Promo_Code` and `Gift_Message`, the output payload becomes:
+```json
+{
+  "sku": "A1"
+}
+```
+*(No `promo_code` or `gift_message` keys are present)*
 
 ---
 

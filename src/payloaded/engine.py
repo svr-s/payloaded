@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import copy
 import math
+import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
 
 from payloaded.expressions import GeneratorContext
 from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 from payloaded.template import PayloadTemplate, _render_value
+
+
+def _is_blank(v: Any) -> bool:
+    """Check if a value is null, NaN, empty string, or whitespace-only."""
+    if v is None:
+        return True
+    if pd.isna(v):
+        return True
+    if isinstance(v, str) and v.strip() == "":
+        return True
+    return False
 
 
 def _match_column_name(target: Union[str, int], df_columns: List[Any]) -> Optional[Any]:
@@ -422,6 +434,20 @@ class HierarchyEngine:
                 # Sub-arrays are populated during hierarchical processing
                 hydrated[key] = copy.deepcopy(val)
             else:
-                hydrated[key] = _render_value(val, lookup, self.mappings_by_payload_key)
+                rendered_val = _render_value(val, lookup, self.mappings_by_payload_key)
+
+                # Check if this placeholder has omit_if_blank enabled
+                exact_match = re.fullmatch(r"\{([a-zA-Z0-9_\-\.]+)\}", str(val).strip())
+                mapping = self.mappings_by_payload_key.get(exact_match.group(1)) if exact_match else None
+                if mapping is None and entity:
+                    for m in entity.mappings:
+                        if m.payload_key == key:
+                            mapping = m
+                            break
+
+                if mapping and mapping.omit_if_blank and _is_blank(rendered_val):
+                    continue
+
+                hydrated[key] = rendered_val
         return hydrated
 

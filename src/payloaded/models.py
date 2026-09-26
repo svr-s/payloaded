@@ -28,6 +28,7 @@ class FieldMapping:
     formula: Optional[str] = None
     default: Optional[Any] = None
     type_cast: Optional[str] = None
+    omit_if_blank: bool = False
     compiled_formula: Optional[CompiledFormula] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -58,12 +59,15 @@ class FieldMapping:
         else:
             source_key = str(source_raw).strip() if source_raw is not None else ""
 
+        omit_if_blank = bool(data.get("omit_if_blank", False))
+
         return cls(
             payload_key=payload_key,
             source_key=source_key,
             formula=formula,
             default=data.get("default"),
             type_cast=data.get("type_cast"),
+            omit_if_blank=omit_if_blank,
         )
 
 
@@ -77,12 +81,14 @@ class EntityConfig:
         repeat_limit: Maximum repetitions of this entity allowed per parent (e.g. max 50).
         group_by: List of keys (payload_key or source_key) that identify uniqueness for grouping.
         mappings: List of field mappings between payload placeholders and source columns.
+        omit_if_blank: If True, all child mappings default to omitting blank fields unless overridden.
     """
 
     path: str
     repeat_limit: Optional[int] = None
     group_by: List[str] = field(default_factory=list)
     mappings: List[FieldMapping] = field(default_factory=list)
+    omit_if_blank: bool = False
 
     @property
     def normalized_path(self) -> str:
@@ -106,15 +112,24 @@ class EntityConfig:
         else:
             group_by = [str(k).strip() for k in group_by_raw if str(k).strip()]
 
+        entity_omit = bool(data.get("omit_if_blank", False))
         mappings_raw = data.get("mappings", [])
-        raw_mappings = [FieldMapping.from_dict(m) for m in mappings_raw]
+        prepared_mappings = []
+        for m in mappings_raw:
+            if isinstance(m, dict):
+                m_copy = dict(m)
+                if "omit_if_blank" not in m_copy and entity_omit:
+                    m_copy["omit_if_blank"] = True
+                prepared_mappings.append(FieldMapping.from_dict(m_copy))
+            else:
+                prepared_mappings.append(FieldMapping.from_dict(m))
 
         # In case of duplicate payload_key or source_key, retain only the first occurrence
         deduped_mappings: List[FieldMapping] = []
         seen_payload_keys = set()
         seen_source_keys = set()
 
-        for m in raw_mappings:
+        for m in prepared_mappings:
             if m.payload_key and m.payload_key in seen_payload_keys:
                 continue
             if not m.formula and m.source_key != "" and m.source_key in seen_source_keys:
@@ -132,6 +147,7 @@ class EntityConfig:
             repeat_limit=repeat_limit,
             group_by=group_by,
             mappings=deduped_mappings,
+            omit_if_blank=entity_omit,
         )
 
 
