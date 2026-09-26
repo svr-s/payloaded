@@ -88,7 +88,11 @@ def reconcile(
             raise ReconciliationError(f"Zero payloads generated, but expected {expected_rows} rows.")
         return report
 
-    total_packed_rows = int(output_df["running_total"].iloc[-1])
+    if "rows_in_payload" in output_df.columns:
+        total_packed_rows = int(output_df["rows_in_payload"].sum())
+    else:
+        total_packed_rows = int(output_df["running_total"].iloc[-1])
+
     target_rows = total_packed_rows if expected_rows is None else expected_rows
     discrepancy = target_rows - total_packed_rows
     is_balanced = (discrepancy == 0)
@@ -98,10 +102,10 @@ def reconcile(
     if "source_filename" in output_df.columns:
         grouped = output_df.groupby("source_filename")
         for fname, f_df in grouped:
-            # File packed rows is the max running total for that file minus prev file max,
-            # or sum of differences
+            f_rows = int(f_df["rows_in_payload"].sum()) if "rows_in_payload" in f_df.columns else int(f_df["running_total"].iloc[-1])
             file_breakdown[str(fname)] = {
                 "payload_count": len(f_df),
+                "source_rows": f_rows,
                 "last_running_total": int(f_df["running_total"].iloc[-1]),
             }
 

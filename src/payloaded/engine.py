@@ -73,14 +73,26 @@ def _split_into_chunks(items: List[Any], chunk_size: Optional[int]) -> List[List
 class HierarchyEngine:
     """Manages multi-level data hierarchy, grouping, and batch chunking."""
 
-    def __init__(self, config: PayloadConfig, template: PayloadTemplate):
-        self.config = config
+    def __init__(self, entities: Union[List[EntityConfig], PayloadConfig], template: PayloadTemplate):
+        if isinstance(entities, PayloadConfig):
+            self.entities = entities.entities
+        else:
+            self.entities = entities
+
         self.template = template
         self.mappings_by_payload_key: Dict[str, FieldMapping] = {}
         self.resolved_source_col: Dict[str, Optional[str]] = {}
-        for entity in self.config.entities:
+        for entity in self.entities:
             for m in entity.mappings:
                 self.mappings_by_payload_key[m.payload_key] = m
+
+    def get_entity(self, path: str) -> Optional[EntityConfig]:
+        """Look up an EntityConfig by its path."""
+        norm = "root" if path in ("", "$", "[root]") else path
+        for entity in self.entities:
+            if entity.normalized_path == norm:
+                return entity
+        return None
 
     def process_dataframe(self, df: pd.DataFrame) -> List[Tuple[Any, int]]:
         """Transform flat DataFrame into a list of (payload_data, row_count) tuples.
@@ -94,7 +106,7 @@ class HierarchyEngine:
         # Validate and resolve mapped columns in df
         df_cols = list(df.columns)
         self.resolved_source_col = {}
-        for entity in self.config.entities:
+        for entity in self.entities:
             for m in entity.mappings:
                 matched = _match_column_name(m.source_key, df_cols)
                 if matched is None and m.default is None:
@@ -110,12 +122,12 @@ class HierarchyEngine:
     def _generate_payloads(self, df: pd.DataFrame, raw_template: Union[dict, list]) -> List[Tuple[Any, int]]:
         """Orchestrate multi-level grouping and chunking against the template."""
         is_root_list = isinstance(raw_template, list)
-        root_entity = self.config.get_entity("root")
+        root_entity = self.get_entity("root")
         root_limit = root_entity.repeat_limit if root_entity else None
 
         # Build entity tree hierarchy starting from root
         # 1. Identify child entities
-        child_entities = [e for e in self.config.entities if e.normalized_path != "root"]
+        child_entities = [e for e in self.entities if e.normalized_path != "root"]
 
         # If there are no child entities or simple flat payload:
         if not child_entities:

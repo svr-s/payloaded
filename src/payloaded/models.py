@@ -120,24 +120,104 @@ class EntityConfig:
 
 
 @dataclass
-class PayloadConfig:
-    """Top-level configuration holding all entity configurations.
+class ConditionConfig:
+    """Represents a specific routing condition with its own template and entities.
 
     Attributes:
-        entities: List of EntityConfig objects defining the hierarchy.
+        condition_rule: List of matching rules (e.g. ['~Terminated'] or ['New', 'Update']).
+                        Empty list indicates an unconditional match.
+        payload_template: The payload template structure (dict, list, str, Path).
+        entities: List of EntityConfig objects defining hierarchy and mappings.
     """
 
+    condition_rule: List[str] = field(default_factory=list)
+    payload_template: Any = None
     entities: List[EntityConfig] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> PayloadConfig:
-        """Instantiate PayloadConfig from a dictionary."""
+    def from_dict(cls, data: Dict[str, Any], default_template: Any = None) -> ConditionConfig:
+        """Parse ConditionConfig from dictionary with whitespace stripping on rules."""
+        raw_rule = data.get("condition_rule", [])
+        if isinstance(raw_rule, (str, int)):
+            rule_str = str(raw_rule).strip()
+            condition_rule = [rule_str] if rule_str else []
+        elif isinstance(raw_rule, (list, tuple)):
+            condition_rule = [str(r).strip() for r in raw_rule if str(r).strip()]
+        else:
+            condition_rule = []
+
+        template = data.get("payload_template", default_template)
         raw_entities = data.get("entities", [])
         entities = [EntityConfig.from_dict(e) for e in raw_entities]
-        return cls(entities=entities)
+
+        return cls(
+            condition_rule=condition_rule,
+            payload_template=template,
+            entities=entities,
+        )
+
+
+@dataclass
+class PayloadConfig:
+    """Top-level configuration holding conditions or standalone entities.
+
+    Attributes:
+        condition_source_key: Column name (str) or 0-based index (int) determining conditions.
+                              Empty string indicates unconditional execution.
+        conditions: List of ConditionConfig objects.
+    """
+
+    condition_source_key: Union[str, int] = ""
+    conditions: List[ConditionConfig] = field(default_factory=list)
+
+    @property
+    def entities(self) -> List[EntityConfig]:
+        """Convenience accessor to the first condition's entities for backward compatibility."""
+        if self.conditions:
+            return self.conditions[0].entities
+        return []
+
+    def get_entity(self, path: str) -> Optional[EntityConfig]:
+        """Look up an EntityConfig by its path in the primary condition."""
+        if not self.conditions:
+            return None
+        norm = "root" if path in ("", "$", "[root]") else path
+        for entity in self.conditions[0].entities:
+            if entity.normalized_path == norm:
+                return entity
+        return None
 
     @classmethod
-    def from_file(cls, filepath: Union[str, Path]) -> PayloadConfig:
+    def from_dict(cls, data: Dict[str, Any], default_template: Any = None) -> PayloadConfig:
+        """Instantiate PayloadConfig from dictionary, handling both canonical and legacy formats."""
+        raw_key = data.get("condition_source_key", data.get("source_key", ""))
+        if isinstance(raw_key, int):
+            condition_source_key: Union[str, int] = raw_key
+        else:
+            condition_source_key = str(raw_key).strip()
+
+        conditions: List[ConditionConfig] = []
+        if "conditions" in data and isinstance(data["conditions"], (list, tuple)):
+            for cond_data in data["conditions"]:
+                conditions.append(ConditionConfig.from_dict(cond_data, default_template=default_template))
+        elif "entities" in data:
+            # Unconditional mode via legacy flat structure
+            template = data.get("payload_template", default_template)
+            raw_entities = data.get("entities", [])
+            entities = [EntityConfig.from_dict(e) for e in raw_entities]
+            conditions.append(ConditionConfig(
+                condition_rule=[],
+                payload_template=template,
+                entities=entities,
+            ))
+
+        return cls(
+            condition_source_key=condition_source_key,
+            conditions=conditions,
+        )
+
+    @classmethod
+    def from_file(cls, filepath: Union[str, Path], default_template: Any = None) -> PayloadConfig:
         """Load configuration from a JSON or YAML file."""
         p = Path(filepath)
         if not p.is_file():
@@ -156,12 +236,4 @@ class PayloadConfig:
         else:
             data = json.loads(content)
 
-        return cls.from_dict(data)
-
-    def get_entity(self, path: str) -> Optional[EntityConfig]:
-        """Look up an EntityConfig by its path."""
-        norm = "root" if path in ("", "$", "[root]") else path
-        for entity in self.entities:
-            if entity.normalized_path == norm:
-                return entity
-        return None
+        return cls.from_dict(data, default_template=default_template)
