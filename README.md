@@ -46,6 +46,30 @@ config = {
 
 ---
 
+## Syntax Standards: Where to Use Curly Braces `{}`
+
+To keep configurations clean, predictable, and avoid syntax errors, `payloaded` maintains a strict distinction between **Declarations** (plain strings) and **Dynamic Substitutions** (curly braces `{}`):
+
+* **Declarations & Identifiers (NO `{}`)**: Schema keys, column pointers, and hierarchy paths must be plain text:
+  - `"payload_key": "order_id"` *(declares the placeholder identifier)*
+  - `"source_key": "Order_ID"` *(points to the source column name or 0-based column index)*
+  - `"condition_source_key": "Status"` *(points to routing column name or index)*
+  - `"path": "orders.line_items"` *(structural tree coordinate)*
+  - `"group_by": ["order_id"]` *(grouping key identifiers)*
+
+* **Dynamic Placeholders & References (MUST USE `{}`)**:
+  - `payload_template`: `"order_id": "{order_id}"` *(signals a placeholder to be hydrated)*
+  - `formula`: `"lower({Location}) & '-' & {Batch_Number}"` *(signals columns to be evaluated)*
+
+### Why Formulas Require Braces `{col}`
+Enclosing column names in `{}` within formulas is essential:
+1. **Prevents Function Name Collisions**: If your CSV has a column literally named `strip`, `date`, `int`, or `round`, writing `strip({strip})` explicitly distinguishes the function `strip()` from the data column `{strip}`.
+2. **Supports Spaces and Symbols**: Allows referencing columns with spaces like `{Batch Number}` or `{Order-ID}` without syntax errors.
+
+> **Note**: `payloaded` strictly adheres to these definitions. Misplaced braces (e.g. putting `{}` in `payload_key` or `source_key`) are not silently altered and will be treated as literal text.
+
+---
+
 ## Quickstart
 
 ### 1. Conditional Routing Example

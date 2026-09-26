@@ -44,7 +44,7 @@ class FieldMapping:
     def from_dict(cls, data: Dict[str, Any]) -> FieldMapping:
         """Create a FieldMapping instance from a raw dictionary with whitespace tolerance."""
         payload_raw = data.get("payload_key", "")
-        payload_key = str(payload_raw).strip().strip("{}").strip()
+        payload_key = str(payload_raw).strip()
 
         formula_raw = data.get("formula")
         formula = str(formula_raw).strip() if formula_raw is not None and str(formula_raw).strip() else None
@@ -57,13 +57,6 @@ class FieldMapping:
             source_key = source_raw.strip()
         else:
             source_key = str(source_raw).strip() if source_raw is not None else ""
-
-        # Auto-detect formula in source_key if formula is not explicitly set
-        if formula is None and isinstance(source_key, str) and (
-            "{" in source_key or "(" in source_key or "&" in source_key
-        ):
-            formula = source_key
-            source_key = ""
 
         return cls(
             payload_key=payload_key,
