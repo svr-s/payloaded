@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/payloaded.svg)](https://pypi.org/project/payloaded/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**`payloaded`** (`import payloaded as pld`) transforms flat tabular data (CSVs, DataFrames) into nested, hierarchical JSON payloads for REST/GraphQL APIs with conditional routing, multi-level batch chunking, and mathematical row reconciliation.
+**`payloaded`** (`import payloaded as pld`) transforms flat tabular data (pandas or polars DataFrames) into nested, hierarchical JSON payloads for REST/GraphQL APIs with conditional routing, multi-level batch chunking, and mathematical row reconciliation.
 
 ---
 
@@ -63,7 +63,7 @@ To keep configurations clean, predictable, and avoid syntax errors, `payloaded` 
 
 ### Why Formulas Require Braces `{col}`
 Enclosing column names in `{}` within formulas is essential:
-1. **Prevents Function Name Collisions**: If your CSV has a column literally named `strip`, `date`, `int`, or `round`, writing `strip({strip})` explicitly distinguishes the function `strip()` from the data column `{strip}`.
+1. **Prevents Function Name Collisions**: If your DataFrame has a column literally named `strip`, `date`, `int`, or `round`, writing `strip({strip})` explicitly distinguishes the function `strip()` from the data column `{strip}`.
 2. **Supports Spaces and Symbols**: Allows referencing columns with spaces like `{Batch Number}` or `{Order-ID}` without syntax errors.
 
 > **Note**: `payloaded` strictly adheres to these definitions. Misplaced braces (e.g. putting `{}` in `payload_key` or `source_key`) are not silently altered and will be treated as literal text.
@@ -225,7 +225,7 @@ config = {
 
 ## Sequence Counters & Scoping
 
-Child entities in API payloads (e.g. invoice lines, order items) frequently require auto-incrementing line numbers that don't exist in source CSVs. `payloaded` provides stateful sequence generators with explicit scoping:
+Child entities in API payloads (e.g. invoice lines, order items) frequently require auto-incrementing line numbers that don't exist in source tabular data. `payloaded` provides stateful sequence generators with explicit scoping:
 
 ```python
 sequence(start=1, step=1, scope="parent")   # Default: Resets per parent entity
@@ -469,9 +469,9 @@ The resulting DataFrame contains 7 canonical columns for end-to-end traceability
 | `condition_rule` | `str` | Matching condition rule expression (e.g. `~Terminated`) |
 | `condition_value` | `str` | Actual partitioned condition value (e.g. `New`, `Update`) |
 | `rows_in_payload` | `int` | Exact count of source tabular rows packed into this payload |
-| `running_total` | `int` | Cumulative row count within the current source file |
+| `running_total` | `int` | Cumulative row count within the current source DataFrame |
 | `payload` | `str` / `dict` | Complete, nested JSON payload string or Python dictionary |
-| `source_filename` | `str` | Origin filename for multi-file traceability |
+| `source_filename` | `str` | Origin source identifier for multi-input traceability |
 
 ---
 
