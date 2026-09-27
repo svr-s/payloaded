@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [
-    { name = "svr-s" }
+    { name="Vatsa", email="228140210+svr-s@users.noreply.github.com" }
 ]
 keywords = ["api", "payload", "json", "pandas", "data-transformation", "batching"]
 classifiers = [
