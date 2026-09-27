@@ -207,3 +207,108 @@ def slice_dataframe_chunks(
 
             yield df.iloc[start:curr_end]
             start = curr_end
+
+
+def compute_meta_summary(payloads_df: Any) -> Any:
+    """Compute an aggregated metadata summary DataFrame from a payloads DataFrame.
+
+    Aggregates by ('condition_rule', 'condition_value') with metrics:
+    - payload_count: total payloads produced for this condition
+    - total_rows: total tabular source rows packed
+    - avg_rows_per_payload: average rows per payload batch (rounded to 1 decimal)
+    - min_rows: minimum batch size
+    - max_rows: maximum batch size
+
+    Includes an 'ALL / TOTAL' row at the end.
+    Returns a pandas.DataFrame or polars.DataFrame matching the input type.
+    """
+    if len(payloads_df) == 0:
+        cols = [
+            "condition_rule",
+            "condition_value",
+            "payload_count",
+            "total_rows",
+            "avg_rows_per_payload",
+            "min_rows",
+            "max_rows",
+        ]
+        target_type = "polars" if is_polars_df(payloads_df) else "pandas"
+        return create_output_dataframe([], cols, target_type=target_type)
+
+    # Standardize data to Python records for clean aggregation
+    if is_polars_df(payloads_df):
+        rows = payloads_df.select([
+            "condition_rule",
+            "condition_value",
+            "rows_in_payload",
+        ]).to_dicts()
+        target_type = "polars"
+    else:
+        rows = payloads_df[[
+            "condition_rule",
+            "condition_value",
+            "rows_in_payload",
+        ]].to_dict(orient="records")
+        target_type = "pandas"
+
+    # Group metrics in memory preserving order
+    grouped: Dict[Tuple[str, str], List[int]] = {}
+    for r in rows:
+        key = (str(r.get("condition_rule", "") or ""), str(r.get("condition_value", "") or ""))
+        cnt = int(r.get("rows_in_payload", 0) or 0)
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(cnt)
+
+    meta_records: List[Dict[str, Any]] = []
+    total_payloads_all = 0
+    total_rows_all = 0
+    all_sizes: List[int] = []
+
+    for (c_rule, c_val), sizes in grouped.items():
+        p_count = len(sizes)
+        t_rows = sum(sizes)
+        avg_r = round(t_rows / p_count, 1) if p_count > 0 else 0.0
+        min_r = min(sizes) if sizes else 0
+        max_r = max(sizes) if sizes else 0
+
+        total_payloads_all += p_count
+        total_rows_all += t_rows
+        all_sizes.extend(sizes)
+
+        meta_records.append({
+            "condition_rule": c_rule,
+            "condition_value": c_val,
+            "payload_count": p_count,
+            "total_rows": t_rows,
+            "avg_rows_per_payload": avg_r,
+            "min_rows": min_r,
+            "max_rows": max_r,
+        })
+
+    # Add TOTAL row if there's at least one group
+    if meta_records:
+        avg_all = round(total_rows_all / total_payloads_all, 1) if total_payloads_all > 0 else 0.0
+        min_all = min(all_sizes) if all_sizes else 0
+        max_all = max(all_sizes) if all_sizes else 0
+        meta_records.append({
+            "condition_rule": "ALL",
+            "condition_value": "TOTAL",
+            "payload_count": total_payloads_all,
+            "total_rows": total_rows_all,
+            "avg_rows_per_payload": avg_all,
+            "min_rows": min_all,
+            "max_rows": max_all,
+        })
+
+    meta_cols = [
+        "condition_rule",
+        "condition_value",
+        "payload_count",
+        "total_rows",
+        "avg_rows_per_payload",
+        "min_rows",
+        "max_rows",
+    ]
+    return create_output_dataframe(meta_records, meta_cols, target_type=target_type)
+

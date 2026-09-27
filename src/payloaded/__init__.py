@@ -5,7 +5,7 @@ hierarchical API payloads with grouping and reconciliation.
 """
 
 from payloaded.audit import AuditReport, ReconciliationError, reconcile
-from payloaded.builder import PayloadBuilder, build_payloads
+from payloaded.builder import PayloadBuilder, build_payloads, summarize
 from payloaded.expressions import (
     CompiledFormula,
     FormulaError,
@@ -20,6 +20,7 @@ __version__ = "0.0.1"
 __all__ = [
     "__version__",
     "build_payloads",
+    "summarize",
     "PayloadBuilder",
     "reconcile",
     "AuditReport",

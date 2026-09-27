@@ -258,24 +258,3 @@ class PayloadConfig:
             conditions=conditions,
         )
 
-    @classmethod
-    def from_file(cls, filepath: Union[str, Path], default_template: Any = None) -> PayloadConfig:
-        """Load configuration from a JSON or YAML file."""
-        p = Path(filepath)
-        if not p.is_file():
-            raise FileNotFoundError(f"Configuration file not found: {filepath}")
-
-        content = p.read_text(encoding="utf-8")
-        if p.suffix.lower() in (".yaml", ".yml"):
-            try:
-                import yaml  # type: ignore
-                data = yaml.safe_load(content)
-            except ImportError:
-                raise ImportError(
-                    "PyYAML is required to parse .yaml/.yml config files. "
-                    "Install it or use a JSON config file."
-                )
-        else:
-            data = json.loads(content)
-
-        return cls.from_dict(data, default_template=default_template)

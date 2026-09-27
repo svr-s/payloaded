@@ -431,6 +431,34 @@ for chunk_df in pld.build_payloads(source=df, config=config, chunksize=10000, st
 
 ---
 
+## Metadata Summary DataFrame (`meta_df`)
+
+To inspect batch sizes, payload counts, and row coverage across distinct conditions without writing custom groupby logic, use **`return_meta=True`** or **`pld.summarize(df_payloads)`**:
+
+```python
+# 1. Direct tuple unpack
+payloads_df, meta_df = pld.build_payloads(df, config=config, return_meta=True)
+
+# 2. Or from an existing payloads DataFrame
+meta_df = pld.summarize(payloads_df)
+```
+
+### Structure of `meta_df`
+
+| Column | Type | Description |
+|---|---|---|
+| `condition_rule` | `str` | Condition rule name (or `ALL` in total row) |
+| `condition_value` | `str` | Partitioned value (e.g. `Create`, `Update`, `TOTAL`) |
+| `payload_count` | `int` | Number of distinct payloads produced |
+| `total_rows` | `int` | Exact sum of source rows packed into those payloads |
+| `avg_rows_per_payload` | `float` | Average rows packed per payload batch |
+| `min_rows` | `int` | Minimum payload batch size |
+| `max_rows` | `int` | Maximum payload batch size |
+
+*Returns either a `pandas.DataFrame` or `polars.DataFrame` matching your input type automatically.*
+
+---
+
 ## Output DataFrame Structure
 
 The resulting DataFrame contains 7 canonical columns for end-to-end traceability and Postman/API dispatch:

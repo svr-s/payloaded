@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from payloaded.audit import AuditReport, reconcile
 from payloaded.compat import (
+    compute_meta_summary,
     create_output_dataframe,
     get_pandas,
     get_polars,
@@ -44,15 +45,15 @@ class PayloadBuilder:
 
     def __init__(
         self,
-        config: Union[dict, str, Path, PayloadConfig],
-        template: Optional[Union[dict, list, str, Path]] = None,
+        config: Union[dict, PayloadConfig],
+        template: Optional[Union[dict, list, str]] = None,
         output_format: str = "json_string",
         indent: Optional[int] = None,
     ):
         """Initialize PayloadBuilder.
 
         Args:
-            config: Canonical configuration dict, path to .json/.yaml config file, or PayloadConfig.
+            config: Canonical configuration dict or PayloadConfig.
             template: Optional default JSON template if not specified directly inside conditions.
             output_format: 'json_string' (default, ready for Postman/HTTP) or 'dict'.
             indent: Optional indentation for JSON serialization (e.g. 2 for pretty-printed).
@@ -62,12 +63,13 @@ class PayloadBuilder:
 
         if isinstance(config, PayloadConfig):
             self.config = config
-        elif isinstance(config, (str, Path)):
-            self.config = PayloadConfig.from_file(config, default_template=template)
         elif isinstance(config, dict):
             self.config = PayloadConfig.from_dict(config, default_template=template)
         else:
-            raise TypeError(f"Unsupported config type: {type(config)}")
+            raise TypeError(
+                f"Unsupported config type: {type(config).__name__}. "
+                "Config must be an in-memory dict or PayloadConfig object."
+            )
 
         self.template = template
         self.output_format = output_format
@@ -220,14 +222,31 @@ class PayloadBuilder:
         return create_output_dataframe(records, OUTPUT_COLUMNS, target_type=target_type)
 
 
+def summarize(payloads_df: Any) -> Any:
+    """Compute an aggregated summary DataFrame from a payloads DataFrame.
+
+    Aggregates by ('condition_rule', 'condition_value') with metrics:
+    - payload_count: total payloads produced for this condition
+    - total_rows: total tabular source rows packed
+    - avg_rows_per_payload: average rows per payload batch
+    - min_rows: minimum batch size
+    - max_rows: maximum batch size
+
+    Includes an 'ALL / TOTAL' row at the end.
+    Returns a pandas.DataFrame or polars.DataFrame matching the input type.
+    """
+    return compute_meta_summary(payloads_df)
+
+
 def build_payloads(
     source: Any,
-    config: Optional[Union[dict, str, Path, PayloadConfig]] = None,
-    template: Optional[Union[dict, list, str, Path]] = None,
+    config: Optional[Union[dict, PayloadConfig]] = None,
+    template: Optional[Union[dict, list, str]] = None,
     output_format: str = "json_string",
     indent: Optional[int] = None,
     chunksize: Optional[int] = None,
     stream: bool = False,
+    return_meta: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Transform tabular source data into nested, batch-chunked API payloads.
@@ -236,18 +255,17 @@ def build_payloads(
     matches the input type automatically.
 
     Args:
-        source: Single pandas or polars DataFrame, CSV filepath, glob pattern, or list of sources.
-        config: Canonical configuration dictionary, file path, or PayloadConfig.
+        source: Single pandas or polars DataFrame, or list of DataFrames.
+        config: Canonical configuration dictionary or PayloadConfig.
         template: Optional default payload template if not specified in config conditions.
         output_format: 'json_string' (default, ready for Postman) or 'dict'.
         indent: Optional indentation for JSON serialization.
         chunksize: Optional row count to chunk source processing in batches.
         stream: If True, yields chunk DataFrames as an iterator rather than returning a single DataFrame.
+        return_meta: If True, returns a tuple (payloads_df, meta_df).
 
     Returns:
-        DataFrame (or Iterator[DataFrame] if stream=True) with columns:
-        ['index', 'condition_rule', 'condition_value', 'rows_in_payload',
-         'running_total', 'payload', 'source_filename'].
+        DataFrame (or tuple (payloads_df, meta_df) if return_meta=True, or Iterator[DataFrame] if stream=True).
     """
     actual_config = config
     actual_template = template
@@ -271,5 +289,15 @@ def build_payloads(
     )
 
     if stream:
+        if return_meta:
+            raise ValueError("return_meta=True cannot be used with stream=True. Use pld.summarize(df) on assembled results.")
         return builder.stream(source, chunksize=chunksize)
-    return builder.build(source, chunksize=chunksize)
+
+    payloads_df = builder.build(source, chunksize=chunksize)
+
+    if return_meta:
+        meta_df = compute_meta_summary(payloads_df)
+        return payloads_df, meta_df
+
+    return payloads_df
+

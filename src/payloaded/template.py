@@ -92,20 +92,13 @@ class PayloadTemplate:
         if isinstance(source, (dict, list)):
             return copy.deepcopy(source)
 
-        if isinstance(source, Path) or (isinstance(source, str) and (Path(source).is_file() or source.endswith(".json"))):
-            p = Path(source)
-            if not p.is_file():
-                raise FileNotFoundError(f"Template file not found: {source}")
-            content = p.read_text(encoding="utf-8")
-            return json.loads(content)
-
         if isinstance(source, str):
             try:
                 return json.loads(source)
             except json.JSONDecodeError as err:
                 raise ValueError(f"Invalid JSON template string: {err}") from err
 
-        raise TypeError(f"Unsupported template type: {type(source)}")
+        raise TypeError(f"Unsupported template type: {type(source).__name__}. Template must be a dict, list, or JSON string.")
 
     def get_template_clone(self) -> Union[dict, list]:
         """Return a deep copy of the raw template."""
