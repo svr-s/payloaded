@@ -9,19 +9,18 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
 
+from payloaded.compat import is_null_or_nan
 from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 
 PLACEHOLDER_REGEX = re.compile(r"\{([a-zA-Z0-9_\-\.]+)\}")
 
 
 def _cast_value(val: Any, type_cast: Optional[str] = None) -> Any:
-    """Cast a value to the target type, handling pandas NA / None gracefully."""
-    if val is None:
+    """Cast a value to the target type, handling NA / None gracefully."""
+    if is_null_or_nan(val):
         return None
     if isinstance(val, (list, dict)):
         return val
-    if pd.isna(val):
-        return None
     if type_cast is None:
         # Convert numpy/pandas scalars to native Python types
         if hasattr(val, "item"):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
+from payloaded.compat import is_null_or_nan
 from payloaded.engine import HierarchyEngine, _match_column_name
 from payloaded.expressions import GeneratorContext
 from payloaded.models import ConditionConfig, PayloadConfig
@@ -106,7 +107,7 @@ class ConditionRouter:
 
             matching_row_indices = []
             for idx, val in candidate_df[matched_col].items():
-                cell_val = "" if pd.isna(val) else str(val).strip()
+                cell_val = "" if is_null_or_nan(val) else str(val).strip()
                 if _eval_rule(cell_val, rules):
                     matching_row_indices.append(idx)
 

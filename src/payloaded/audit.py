@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
-import pandas as pd
+
+from payloaded.compat import is_polars_df
 
 
 class ReconciliationError(Exception):
@@ -56,22 +57,13 @@ class AuditReport:
 
 
 def reconcile(
-    output_df: pd.DataFrame,
+    output_df: Any,
     expected_rows: Optional[int] = None,
     strict: bool = True,
 ) -> AuditReport:
     """Verify that the generated payloads mathematically reconcile against source row counts.
 
-    Args:
-        output_df: The DataFrame returned by payloaded.build_payloads.
-        expected_rows: Optional explicit count of expected source rows to tally against.
-        strict: If True, raises ReconciliationError when not balanced.
-
-    Returns:
-        AuditReport containing verification metrics.
-
-    Raises:
-        ReconciliationError: If strict is True and a discrepancy is detected.
+    Supports both pandas.DataFrame and polars.DataFrame.
     """
     payload_count = len(output_df)
     if payload_count == 0:
@@ -88,26 +80,49 @@ def reconcile(
             raise ReconciliationError(f"Zero payloads generated, but expected {expected_rows} rows.")
         return report
 
-    if "rows_in_payload" in output_df.columns:
-        total_packed_rows = int(output_df["rows_in_payload"].sum())
+    is_pol = is_polars_df(output_df)
+    cols = output_df.columns
+
+    if is_pol:
+        if "rows_in_payload" in cols:
+            total_packed_rows = int(output_df["rows_in_payload"].sum())
+        else:
+            total_packed_rows = int(output_df["running_total"][-1])
+
+        target_rows = total_packed_rows if expected_rows is None else expected_rows
+        discrepancy = target_rows - total_packed_rows
+        is_balanced = (discrepancy == 0)
+
+        file_breakdown: Dict[str, Dict[str, int]] = {}
+        if "source_filename" in cols:
+            for partition in output_df.partition_by("source_filename", as_dict=False):
+                fname = str(partition["source_filename"][0])
+                f_rows = int(partition["rows_in_payload"].sum()) if "rows_in_payload" in cols else int(partition["running_total"][-1])
+                file_breakdown[fname] = {
+                    "payload_count": len(partition),
+                    "source_rows": f_rows,
+                    "last_running_total": int(partition["running_total"][-1]),
+                }
     else:
-        total_packed_rows = int(output_df["running_total"].iloc[-1])
+        if "rows_in_payload" in cols:
+            total_packed_rows = int(output_df["rows_in_payload"].sum())
+        else:
+            total_packed_rows = int(output_df["running_total"].iloc[-1])
 
-    target_rows = total_packed_rows if expected_rows is None else expected_rows
-    discrepancy = target_rows - total_packed_rows
-    is_balanced = (discrepancy == 0)
+        target_rows = total_packed_rows if expected_rows is None else expected_rows
+        discrepancy = target_rows - total_packed_rows
+        is_balanced = (discrepancy == 0)
 
-    # Per-file breakdown
-    file_breakdown: Dict[str, Dict[str, int]] = {}
-    if "source_filename" in output_df.columns:
-        grouped = output_df.groupby("source_filename")
-        for fname, f_df in grouped:
-            f_rows = int(f_df["rows_in_payload"].sum()) if "rows_in_payload" in f_df.columns else int(f_df["running_total"].iloc[-1])
-            file_breakdown[str(fname)] = {
-                "payload_count": len(f_df),
-                "source_rows": f_rows,
-                "last_running_total": int(f_df["running_total"].iloc[-1]),
-            }
+        file_breakdown: Dict[str, Dict[str, int]] = {}
+        if "source_filename" in cols:
+            grouped = output_df.groupby("source_filename")
+            for fname, f_df in grouped:
+                f_rows = int(f_df["rows_in_payload"].sum()) if "rows_in_payload" in cols else int(f_df["running_total"].iloc[-1])
+                file_breakdown[str(fname)] = {
+                    "payload_count": len(f_df),
+                    "source_rows": f_rows,
+                    "last_running_total": int(f_df["running_total"].iloc[-1]),
+                }
 
     report = AuditReport(
         is_balanced=is_balanced,

@@ -4,32 +4,27 @@ from __future__ import annotations
 
 import glob
 from pathlib import Path
-from typing import List, Tuple, Union
-import pandas as pd
+from typing import Any, List, Tuple, Union
+
+from payloaded.compat import get_pandas, is_pandas_df, is_polars_df
 
 
 def load_sources(
-    source: Union[str, Path, pd.DataFrame, List[Union[str, Path, pd.DataFrame]]],
+    source: Any,
     default_name: str = "source_data",
-) -> List[Tuple[str, pd.DataFrame]]:
+) -> List[Tuple[str, Any]]:
     """Standardize disparate input sources into a list of (filename, DataFrame) tuples.
 
-    Args:
-        source: Single DataFrame, CSV filepath, glob pattern (e.g. 'data/*.csv'),
-                or list of paths/DataFrames.
-        default_name: Fallback identifier when a direct DataFrame is passed.
-
-    Returns:
-        List of tuples: (source_filename, DataFrame).
-
-    Raises:
-        FileNotFoundError: If a specified file path does not exist.
-        ValueError: If input format is invalid or no files match the glob pattern.
+    Supports:
+    - pandas.DataFrame
+    - polars.DataFrame (converted to pandas representation for engine routing, while preserving type info)
+    - CSV filepath or glob pattern
+    - List of paths or DataFrames.
     """
-    results: List[Tuple[str, pd.DataFrame]] = []
+    results: List[Tuple[str, Any]] = []
 
-    if isinstance(source, pd.DataFrame):
-        return [(default_name, source.copy())]
+    if is_polars_df(source) or is_pandas_df(source):
+        return [(default_name, source)]
 
     if isinstance(source, (str, Path)):
         source_str = str(source)
@@ -44,6 +39,9 @@ def load_sources(
                 results.append((p.name, df))
             return results
 
+        pd = get_pandas()
+        if pd is None:
+            raise ImportError("pandas is required to read CSV files directly. Install pandas or pass a DataFrame.")
         # Single path
         p = Path(source)
         if not p.is_file():
@@ -52,14 +50,17 @@ def load_sources(
         return [(p.name, df)]
 
     if isinstance(source, (list, tuple)):
+        pd = get_pandas()
         for idx, item in enumerate(source):
-            if isinstance(item, pd.DataFrame):
+            if is_polars_df(item) or is_pandas_df(item):
                 name = f"{default_name}_{idx + 1}"
-                results.append((name, item.copy()))
+                results.append((name, item))
             elif isinstance(item, (str, Path)):
                 p = Path(item)
                 if not p.is_file():
                     raise FileNotFoundError(f"Source file not found: {item}")
+                if pd is None:
+                    raise ImportError("pandas is required to read CSV files directly.")
                 df = pd.read_csv(p)
                 results.append((p.name, df))
             else:

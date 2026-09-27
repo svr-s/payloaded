@@ -380,6 +380,57 @@ When data arrives with embedded/semi-structured objects packed directly inside a
 
 ---
 
+## Dual DataFrame Support: Polars & Pandas
+
+`payloaded` dynamically adapts to your data engineering stack. It accepts either **`pandas.DataFrame`** or **`polars.DataFrame`** as the `source` input and automatically returns the **exact same DataFrame type**:
+
+```python
+import polars as pl
+import payloaded as pld
+
+# 1. Read high-performance Polars DataFrame
+pldf = pl.read_parquet("orders.parquet")
+
+# 2. Generates payloads and returns a polars.DataFrame automatically
+polars_payloads = pld.build_payloads(source=pldf, config=config, output_format="dict")
+print(type(polars_payloads))  # <class 'polars.dataframe.frame.DataFrame'>
+```
+
+- **Zero Heavy Forced Overhead**: In serverless environments (like AWS Lambda), Polars-only users don't need pyarrow or heavy native libraries.
+- **Consistent Output**: The output table always has the exact same 7 canonical columns and schema whether returned as Polars or Pandas.
+
+---
+
+## Chunking & Memory-Constrained Streaming (`chunksize`)
+
+When processing massive tabular datasets or executing inside constrained memory budgets (e.g., 256MB AWS Lambda functions), `payloaded` provides two built-in chunking strategies:
+
+### 1. In-Memory Batching (`chunksize=N`)
+Processes the source data in slices under the hood to cap peak memory, while seamlessly maintaining the cumulative `running_total` across all batches and returning a single, unified DataFrame:
+
+```python
+# Processes in slices of 50,000 rows
+df_payloads = pld.build_payloads(
+    source=df, 
+    config=config, 
+    chunksize=50000
+)
+```
+
+### 2. Generator Streaming Mode (`stream=True`)
+Yields mini-DataFrames matching the source type (`pandas` or `polars`) one chunk at a time, allowing you to stream payloads directly to external APIs without accumulating the full output table in memory:
+
+```python
+for chunk_df in pld.build_payloads(source=df, config=config, chunksize=10000, stream=True):
+    # chunk_df is a mini-DataFrame of 7 columns ready to dispatch
+    for row in chunk_df.iter_rows(named=True):  # or chunk_df.iterrows()
+        post_to_api(row["payload"])
+```
+
+- **Group-Boundary Awareness**: When top-level grouping keys (`group_by`) are configured on the root entity, `payloaded` automatically avoids severing a parent group across chunk boundaries.
+
+---
+
 ## Output DataFrame Structure
 
 The resulting DataFrame contains 7 canonical columns for end-to-end traceability and Postman/API dispatch:

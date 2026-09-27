@@ -10,20 +10,12 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import pandas as pd
 
+from payloaded.compat import is_blank, is_null_or_nan
 from payloaded.expressions import GeneratorContext
 from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 from payloaded.template import PayloadTemplate, _render_value
 
-
-def _is_blank(v: Any) -> bool:
-    """Check if a value is null, NaN, empty string, or whitespace-only."""
-    if v is None:
-        return True
-    if pd.isna(v):
-        return True
-    if isinstance(v, str) and v.strip() == "":
-        return True
-    return False
+_is_blank = is_blank
 
 
 def _match_column_name(target: Union[str, int], df_columns: List[Any]) -> Optional[Any]:
@@ -172,7 +164,7 @@ def _extract_cell_items(cell_val: Any) -> List[Dict[str, Any]]:
         return []
     if isinstance(cell_val, (list, dict)):
         parsed = cell_val
-    elif pd.isna(cell_val):
+    elif is_null_or_nan(cell_val):
         return []
     else:
         parsed: Any = cell_val
