@@ -246,7 +246,6 @@ def build_payloads(
     indent: Optional[int] = None,
     chunksize: Optional[int] = None,
     stream: bool = False,
-    return_meta: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Transform tabular source data into nested, batch-chunked API payloads.
@@ -261,11 +260,11 @@ def build_payloads(
         output_format: 'json_string' (default, ready for Postman) or 'dict'.
         indent: Optional indentation for JSON serialization.
         chunksize: Optional row count to chunk source processing in batches.
-        stream: If True, yields chunk DataFrames as an iterator rather than returning a single DataFrame.
-        return_meta: If True, returns a tuple (payloads_df, meta_df).
+        stream: If True, yields chunk DataFrames as an iterator rather than returning the tuple.
 
     Returns:
-        DataFrame (or tuple (payloads_df, meta_df) if return_meta=True, or Iterator[DataFrame] if stream=True).
+        Tuple[DataFrame, DataFrame]: (payloads_df, meta_df) containing payloads and reconciliation summary,
+        or Iterator[DataFrame] if stream=True.
     """
     actual_config = config
     actual_template = template
@@ -289,15 +288,9 @@ def build_payloads(
     )
 
     if stream:
-        if return_meta:
-            raise ValueError("return_meta=True cannot be used with stream=True. Use pld.summarize(df) on assembled results.")
         return builder.stream(source, chunksize=chunksize)
 
     payloads_df = builder.build(source, chunksize=chunksize)
-
-    if return_meta:
-        meta_df = compute_meta_summary(payloads_df)
-        return payloads_df, meta_df
-
-    return payloads_df
+    meta_df = compute_meta_summary(payloads_df)
+    return payloads_df, meta_df
 

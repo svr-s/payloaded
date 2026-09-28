@@ -153,12 +153,15 @@ config = {
     ]
 }
 
-# Generate auditable payloads DataFrame
-df_payloads = pld.build_payloads(
+# Generate auditable payloads DataFrame and meta summary
+df_payloads, meta_df = pld.build_payloads(
     source=df_source,
     config=config,
     output_format="json_string"  # or "dict"
 )
+
+# Inspect high-level batch metrics and condition coverage
+print(meta_df)
 
 # Verify zero data loss with mathematical reconciliation
 audit_report = pld.reconcile(df_payloads, expected_rows=len(df_source))
@@ -410,7 +413,7 @@ Processes the source data in slices under the hood to cap peak memory, while sea
 
 ```python
 # Processes in slices of 50,000 rows
-df_payloads = pld.build_payloads(
+df_payloads, meta_df = pld.build_payloads(
     source=df, 
     config=config, 
     chunksize=50000
@@ -433,13 +436,13 @@ for chunk_df in pld.build_payloads(source=df, config=config, chunksize=10000, st
 
 ## Metadata Summary DataFrame (`meta_df`)
 
-To inspect batch sizes, payload counts, and row coverage across distinct conditions without writing custom groupby logic, use **`return_meta=True`** or **`pld.summarize(df_payloads)`**:
+To inspect batch sizes, payload counts, and row coverage across distinct conditions without writing custom groupby logic, `build_payloads` automatically returns `(payloads_df, meta_df)` as a 2-element tuple:
 
 ```python
-# 1. Direct tuple unpack
-payloads_df, meta_df = pld.build_payloads(df, config=config, return_meta=True)
+# 1. Returned directly from build_payloads
+payloads_df, meta_df = pld.build_payloads(df, config=config)
 
-# 2. Or from an existing payloads DataFrame
+# 2. Or computed from an existing payloads DataFrame
 meta_df = pld.summarize(payloads_df)
 ```
 

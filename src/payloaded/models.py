@@ -19,7 +19,6 @@ class FieldMapping:
         source_key: Column name (str) or 0-based column index (int) in the source tabular data.
         formula: Optional expression string (e.g. 'lower(strip({col}))[0:5] & "-" & {id}').
         default: Optional fallback value if the column value is null or missing.
-        type_cast: Optional type name ('int', 'float', 'str', 'bool') for explicit casting.
         compiled_formula: Pre-compiled AST object for high-speed evaluation.
     """
 
@@ -27,7 +26,6 @@ class FieldMapping:
     source_key: Union[str, int] = ""
     formula: Optional[str] = None
     default: Optional[Any] = None
-    type_cast: Optional[str] = None
     omit_if_blank: bool = False
     compiled_formula: Optional[CompiledFormula] = field(default=None, repr=False, compare=False)
 
@@ -66,7 +64,6 @@ class FieldMapping:
             source_key=source_key,
             formula=formula,
             default=data.get("default"),
-            type_cast=data.get("type_cast"),
             omit_if_blank=omit_if_blank,
         )
 

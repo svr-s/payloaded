@@ -15,32 +15,14 @@ from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 PLACEHOLDER_REGEX = re.compile(r"\{([a-zA-Z0-9_\-\.]+)\}")
 
 
-def _cast_value(val: Any, type_cast: Optional[str] = None) -> Any:
-    """Cast a value to the target type, handling NA / None gracefully."""
+def _clean_scalar_value(val: Any) -> Any:
+    """Handle NA / None and convert numpy/pandas scalars to native Python types."""
     if is_null_or_nan(val):
         return None
     if isinstance(val, (list, dict)):
         return val
-    if type_cast is None:
-        # Convert numpy/pandas scalars to native Python types
-        if hasattr(val, "item"):
-            return val.item()
-        return val
-
-    t = type_cast.lower().strip()
-    try:
-        if t in ("int", "integer"):
-            return int(val)
-        if t in ("float", "number"):
-            return float(val)
-        if t in ("str", "string"):
-            return str(val)
-        if t in ("bool", "boolean"):
-            if isinstance(val, str):
-                return val.lower() in ("true", "1", "yes", "t")
-            return bool(val)
-    except (ValueError, TypeError):
-        return val
+    if hasattr(val, "item"):
+        return val.item()
     return val
 
 
@@ -61,8 +43,7 @@ def _render_value(template_val: Any, record: Dict[str, Any], mappings_by_key: Di
         mapping = mappings_by_key.get(key)
         if raw_val is None and mapping and mapping.default is not None:
             raw_val = mapping.default
-        type_cast = mapping.type_cast if mapping else None
-        return _cast_value(raw_val, type_cast)
+        return _clean_scalar_value(raw_val)
 
     # String with embedded placeholders (e.g. 'Order #{order_no}')
     def _replace_match(match: re.Match) -> str:
