@@ -53,6 +53,7 @@ packages = ["src/payloaded"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
+    "Testing",
     "Payloaded - Testing",
     "* - Testing",
 ]
