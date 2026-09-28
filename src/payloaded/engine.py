@@ -427,53 +427,82 @@ class HierarchyEngine:
             rendered = self._hydrate_dict(elem_template, root_record, root_entity, parent_id="root")
             return [(rendered, len(group_df))]
 
-        # Handle direct children (e.g. orders)
-        primary_child = direct_children[0]
-        child_path = primary_child.path  # e.g. "orders"
-        child_template_list = elem_template.get(child_path, [{}])
-        child_elem_template = child_template_list[0] if isinstance(child_template_list, list) and child_template_list else {}
+        # Handle direct children (e.g. orders, returns)
+        direct_child_chunks: Dict[str, Tuple[EntityConfig, List[List[Tuple[dict, int]]]]] = {}
 
-        # Grandchildren under this child
-        grandchild_prefix = f"{child_path}."
-        grandchildren = [e for e in child_entities if e.path.startswith(grandchild_prefix)]
+        for child in direct_children:
+            child_path = child.path
+            child_template_list = elem_template.get(child_path, [{}])
+            child_elem_template = (
+                child_template_list[0]
+                if isinstance(child_template_list, list) and child_template_list
+                else {}
+            )
 
-        # Group by child's group_by keys
-        child_group_cols = []
-        if primary_child.group_by:
-            child_group_cols = [
-                _resolve_column(k, list(group_df.columns), self.mappings_by_payload_key)
-                for k in primary_child.group_by
-            ]
+            # Grandchildren under this child
+            grandchild_prefix = f"{child_path}."
+            grandchildren = [e for e in child_entities if e.path.startswith(grandchild_prefix)]
 
-        # Generate child items
-        child_items: List[Tuple[dict, int]] = []
-        if child_group_cols:
-            grouped = group_df.groupby(child_group_cols, sort=False, dropna=False)
-            for _, sub_df in grouped:
+            # Group by child's group_by keys
+            child_group_cols = []
+            if child.group_by:
+                child_group_cols = [
+                    _resolve_column(k, list(group_df.columns), self.mappings_by_payload_key)
+                    for k in child.group_by
+                ]
+
+            # Generate child items
+            child_items: List[Tuple[dict, int]] = []
+            if child_group_cols:
+                grouped = group_df.groupby(child_group_cols, sort=False, dropna=False)
+                for _, sub_df in grouped:
+                    c_items = self._process_child_element(
+                        sub_df, child_elem_template, child, grandchildren, parent_id=root_id
+                    )
+                    child_items.extend(c_items)
+            else:
                 c_items = self._process_child_element(
-                    sub_df, child_elem_template, primary_child, grandchildren, parent_id=root_id
+                    group_df, child_elem_template, child, grandchildren, parent_id=root_id
                 )
                 child_items.extend(c_items)
-        else:
-            c_items = self._process_child_element(
-                group_df, child_elem_template, primary_child, grandchildren, parent_id=root_id
-            )
-            child_items.extend(c_items)
 
-        # Chunk child items by primary_child.repeat_limit
-        child_chunks = _split_into_chunks(child_items, primary_child.repeat_limit)
+            # Chunk child items by child.repeat_limit
+            chunks = _split_into_chunks(child_items, child.repeat_limit)
+            direct_child_chunks[child_path] = (child, chunks)
 
-        # For each child chunk, create a clone of the root element
+        # Determine total number of payloads needed for this root element
+        max_num_chunks = max(
+            (len(chunks) for _, chunks in direct_child_chunks.values()),
+            default=1,
+        )
+        if max_num_chunks == 0:
+            max_num_chunks = 1
+
         results: List[Tuple[dict, int]] = []
 
-        for chunk in child_chunks:
+        for i in range(max_num_chunks):
             root_copy = copy.deepcopy(elem_template)
-            # Hydrate root scalars
             hydrated_root = self._hydrate_dict(root_copy, root_record, root_entity, parent_id="root")
-            # Inject chunk of child items
-            hydrated_root[child_path] = [item[0] for item in chunk]
-            chunk_rows = sum(item[1] for item in chunk)
-            results.append((hydrated_root, chunk_rows))
+
+            payload_chunk_rows = 0
+            for child_path, (child_ent, chunks) in direct_child_chunks.items():
+                if i < len(chunks):
+                    chunk = chunks[i]
+                    hydrated_root[child_path] = [item[0] for item in chunk]
+                    child_chunk_rows = sum(item[1] for item in chunk)
+                    payload_chunk_rows = max(payload_chunk_rows, child_chunk_rows)
+                else:
+                    # No more items for this sibling in this chunk
+                    if child_ent.omit_if_blank:
+                        hydrated_root.pop(child_path, None)
+                    else:
+                        hydrated_root[child_path] = []
+
+            # If no child emitted row counts (e.g. wide format or empty children), fallback to group_df len for first payload
+            if payload_chunk_rows == 0 and i == 0:
+                payload_chunk_rows = len(group_df)
+
+            results.append((hydrated_root, payload_chunk_rows))
 
         return results
 
@@ -539,77 +568,114 @@ class HierarchyEngine:
                 rendered = self._hydrate_dict(child_elem_template, child_record, child_entity, parent_id=parent_id)
                 return [(rendered, len(sub_df))]
 
-        primary_grandchild = grandchildren[0]
-        # Relative path under child: e.g. "orders.line_items" -> "line_items"
-        gc_key = primary_grandchild.path.split(".", 1)[1]
+        # Direct grandchildren under this child (e.g. orders.line_items, orders.fees)
+        grandchild_prefix = f"{child_entity.path}."
+        direct_grandchildren: List[EntityConfig] = []
+        for e in grandchildren:
+            rel = e.path[len(grandchild_prefix):]
+            if "." not in rel:
+                direct_grandchildren.append(e)
 
-        gc_template_list = child_elem_template.get(gc_key, [{}])
-        gc_elem_template = gc_template_list[0] if isinstance(gc_template_list, list) and gc_template_list else {}
+        if not direct_grandchildren:
+            direct_grandchildren = grandchildren
 
-        # Grandchild items
-        gc_items: List[Tuple[dict, int]] = []
-        if primary_grandchild.source_column:
-            matched_col = _match_column_name(primary_grandchild.source_column, list(sub_df.columns))
-            for _, row in sub_df.iterrows():
-                parent_rec = row.to_dict()
-                cell_val = parent_rec.get(matched_col) if matched_col else None
-                cell_items = _extract_cell_items(cell_val)
-                for item_dict in cell_items:
-                    item_rec = _resolve_item_record(primary_grandchild, item_dict, parent_rec)
-                    rendered_gc = self._hydrate_dict(
-                        gc_elem_template, item_rec, primary_grandchild, parent_id=child_id
-                    )
-                    if not _is_unrolled_item_empty(rendered_gc, primary_grandchild):
-                        gc_items.append((rendered_gc, 1))
-        elif primary_grandchild.has_wildcard_mappings:
-            tokens = _extract_wildcard_tokens(primary_grandchild, list(sub_df.columns))
-            for _, row in sub_df.iterrows():
-                base_rec = row.to_dict()
-                for token in tokens:
-                    token_rec = _resolve_wildcard_record(primary_grandchild, base_rec, token, list(sub_df.columns))
-                    rendered_gc = self._hydrate_dict(
-                        gc_elem_template, token_rec, primary_grandchild, parent_id=child_id
-                    )
-                    if not _is_unrolled_item_empty(rendered_gc, primary_grandchild):
-                        gc_items.append((rendered_gc, 1))
-        else:
-            gc_group_cols = []
-            if primary_grandchild.group_by:
-                gc_group_cols = [
-                    _resolve_column(k, list(sub_df.columns), self.mappings_by_payload_key)
-                    for k in primary_grandchild.group_by
-                ]
+        gc_chunks_by_key: Dict[str, Tuple[EntityConfig, List[List[Tuple[dict, int]]]]] = {}
 
-            if gc_group_cols:
-                grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
-                for _, gc_df in grouped:
-                    row_record = gc_df.iloc[0].to_dict()
-                    rendered_gc = self._hydrate_dict(
-                        gc_elem_template, row_record, primary_grandchild, parent_id=child_id
-                    )
-                    gc_items.append((rendered_gc, len(gc_df)))
-            else:
-                # Every row is a grandchild item
+        for gc_ent in direct_grandchildren:
+            gc_rel_key = gc_ent.path[len(grandchild_prefix):]
+            gc_template_list = child_elem_template.get(gc_rel_key, [{}])
+            gc_elem_template = (
+                gc_template_list[0]
+                if isinstance(gc_template_list, list) and gc_template_list
+                else {}
+            )
+
+            # Collect items for this grandchild
+            gc_items: List[Tuple[dict, int]] = []
+            if gc_ent.source_column:
+                matched_col = _match_column_name(gc_ent.source_column, list(sub_df.columns))
                 for _, row in sub_df.iterrows():
-                    row_record = row.to_dict()
-                    rendered_gc = self._hydrate_dict(
-                        gc_elem_template, row_record, primary_grandchild, parent_id=child_id
-                    )
-                    gc_items.append((rendered_gc, 1))
+                    parent_rec = row.to_dict()
+                    cell_val = parent_rec.get(matched_col) if matched_col else None
+                    cell_items = _extract_cell_items(cell_val)
+                    for item_dict in cell_items:
+                        item_rec = _resolve_item_record(gc_ent, item_dict, parent_rec)
+                        rendered_gc = self._hydrate_dict(
+                            gc_elem_template, item_rec, gc_ent, parent_id=child_id
+                        )
+                        if not _is_unrolled_item_empty(rendered_gc, gc_ent):
+                            gc_items.append((rendered_gc, 1))
+            elif gc_ent.has_wildcard_mappings:
+                tokens = _extract_wildcard_tokens(gc_ent, list(sub_df.columns))
+                for _, row in sub_df.iterrows():
+                    base_rec = row.to_dict()
+                    for token in tokens:
+                        token_rec = _resolve_wildcard_record(gc_ent, base_rec, token, list(sub_df.columns))
+                        rendered_gc = self._hydrate_dict(
+                            gc_elem_template, token_rec, gc_ent, parent_id=child_id
+                        )
+                        if not _is_unrolled_item_empty(rendered_gc, gc_ent):
+                            gc_items.append((rendered_gc, 1))
+            else:
+                gc_group_cols = []
+                if gc_ent.group_by:
+                    gc_group_cols = [
+                        _resolve_column(k, list(sub_df.columns), self.mappings_by_payload_key)
+                        for k in gc_ent.group_by
+                    ]
 
-        # Chunk grandchildren by primary_grandchild.repeat_limit
-        gc_chunks = _split_into_chunks(gc_items, primary_grandchild.repeat_limit)
+                if gc_group_cols:
+                    grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
+                    for _, gc_df in grouped:
+                        row_record = gc_df.iloc[0].to_dict()
+                        rendered_gc = self._hydrate_dict(
+                            gc_elem_template, row_record, gc_ent, parent_id=child_id
+                        )
+                        gc_items.append((rendered_gc, len(gc_df)))
+                else:
+                    # Every row is a grandchild item
+                    for _, row in sub_df.iterrows():
+                        row_record = row.to_dict()
+                        rendered_gc = self._hydrate_dict(
+                            gc_elem_template, row_record, gc_ent, parent_id=child_id
+                        )
+                        gc_items.append((rendered_gc, 1))
+
+            gc_chunks = _split_into_chunks(gc_items, gc_ent.repeat_limit)
+            gc_chunks_by_key[gc_rel_key] = (gc_ent, gc_chunks)
+
+        max_gc_chunks = max(
+            (len(chunks) for _, chunks in gc_chunks_by_key.values()),
+            default=1,
+        )
+        if max_gc_chunks == 0:
+            max_gc_chunks = 1
 
         results: List[Tuple[dict, int]] = []
 
-        for chunk in gc_chunks:
+        for i in range(max_gc_chunks):
             child_copy = copy.deepcopy(child_elem_template)
             hydrated_child = self._hydrate_dict(
                 child_copy, child_record, child_entity, parent_id=parent_id
             )
-            hydrated_child[gc_key] = [item[0] for item in chunk]
-            chunk_rows = sum(item[1] for item in chunk)
-            results.append((hydrated_child, chunk_rows))
+
+            child_chunk_rows = 0
+            for gc_rel_key, (gc_ent, chunks) in gc_chunks_by_key.items():
+                if i < len(chunks):
+                    chunk = chunks[i]
+                    hydrated_child[gc_rel_key] = [item[0] for item in chunk]
+                    gc_row_sum = sum(item[1] for item in chunk)
+                    child_chunk_rows = max(child_chunk_rows, gc_row_sum)
+                else:
+                    if gc_ent.omit_if_blank:
+                        hydrated_child.pop(gc_rel_key, None)
+                    else:
+                        hydrated_child[gc_rel_key] = []
+
+            if child_chunk_rows == 0 and i == 0:
+                child_chunk_rows = len(sub_df)
+
+            results.append((hydrated_child, child_chunk_rows))
 
         return results
 
