@@ -465,7 +465,7 @@ meta_df = pld.summarize(payloads_df)
 
 ## Output DataFrame Structure
 
-The resulting DataFrame contains 7 canonical columns for end-to-end traceability and Postman/API dispatch:
+The resulting DataFrame contains 8 canonical columns for end-to-end traceability, entity sizing, and Postman/API dispatch:
 
 | Column | Type | Description |
 |---|---|---|
@@ -474,6 +474,7 @@ The resulting DataFrame contains 7 canonical columns for end-to-end traceability
 | `condition_value` | `str` | Actual partitioned condition value (e.g. `New`, `Update`) |
 | `rows_in_payload` | `int` | Exact count of source tabular rows packed into this payload |
 | `running_total` | `int` | Cumulative row count within the current source DataFrame |
+| `node_counts` | `dict` | Exact counts of entities / child items present inside this individual payload |
 | `payload` | `str` / `dict` | Complete, nested JSON payload string or Python dictionary |
 | `source_filename` | `str` | Origin source identifier for multi-input traceability |
 

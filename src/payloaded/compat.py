@@ -102,6 +102,7 @@ def create_output_dataframe(records: List[Dict[str, Any]], columns: List[str], t
                 "condition_value": pl.Utf8,
                 "rows_in_payload": pl.Int64,
                 "running_total": pl.Int64,
+                "node_counts": pl.Object,
                 "payload": pl.Utf8 if any(isinstance(r.get("payload"), str) for r in records) else pl.Object,
                 "source_filename": pl.Utf8,
             }
@@ -253,6 +254,12 @@ def _extract_unique_nodes(payload_obj: Any) -> Dict[str, Set[Any]]:
 
     _traverse(payload_obj)
     return node_sets
+
+
+def extract_payload_node_counts(payload_obj: Any) -> Dict[str, int]:
+    """Extract item/entity counts for each node path present in a single payload object."""
+    nodes = _extract_unique_nodes(payload_obj)
+    return {k: len(v) for k, v in nodes.items()}
 
 
 def compute_meta_summary(payloads_df: Any) -> Any:

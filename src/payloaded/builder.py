@@ -10,6 +10,7 @@ from payloaded.audit import AuditReport, reconcile
 from payloaded.compat import (
     compute_meta_summary,
     create_output_dataframe,
+    extract_payload_node_counts,
     get_pandas,
     get_polars,
     is_pandas_df,
@@ -28,6 +29,7 @@ OUTPUT_COLUMNS = [
     "condition_value",
     "rows_in_payload",
     "running_total",
+    "node_counts",
     "payload",
     "source_filename",
 ]
@@ -130,6 +132,7 @@ class PayloadBuilder:
 
                 for payload_data, rows_in_payload, cond_rule, cond_val in payload_tuples:
                     file_running_total += rows_in_payload
+                    node_counts = extract_payload_node_counts(payload_data)
 
                     if self.output_format == "json_string":
                         formatted_payload = json.dumps(
@@ -146,6 +149,7 @@ class PayloadBuilder:
                         "condition_value": cond_val,
                         "rows_in_payload": rows_in_payload,
                         "running_total": file_running_total,
+                        "node_counts": node_counts,
                         "payload": formatted_payload,
                         "source_filename": filename,
                     })
@@ -198,6 +202,7 @@ class PayloadBuilder:
 
             for payload_data, rows_in_payload, cond_rule, cond_val in payload_tuples:
                 file_running_total += rows_in_payload
+                node_counts = extract_payload_node_counts(payload_data)
 
                 if self.output_format == "json_string":
                     formatted_payload = json.dumps(
@@ -214,6 +219,7 @@ class PayloadBuilder:
                     "condition_value": cond_val,
                     "rows_in_payload": rows_in_payload,
                     "running_total": file_running_total,
+                    "node_counts": node_counts,
                     "payload": formatted_payload,
                     "source_filename": filename,
                 })
