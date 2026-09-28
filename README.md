@@ -457,6 +457,7 @@ meta_df = pld.summarize(payloads_df)
 | `avg_rows_per_payload` | `float` | Average rows packed per payload batch |
 | `min_rows` | `int` | Minimum payload batch size |
 | `max_rows` | `int` | Maximum payload batch size |
+| `node_totals` | `dict` | Total unique entity counts per node/path without double-counting split payloads |
 
 *Returns either a `pandas.DataFrame` or `polars.DataFrame` matching your input type automatically.*
 

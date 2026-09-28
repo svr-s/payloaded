@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import math
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 # Lazy cache for polars and pandas module availability
 _PANDAS_MOD: Any = None
@@ -209,6 +210,51 @@ def slice_dataframe_chunks(
             start = curr_end
 
 
+def _extract_unique_nodes(payload_obj: Any) -> Dict[str, Set[Any]]:
+    """Recursively extract sets of unique identifiers or distinct items for each entity node in a payload.
+
+    For dict elements inside a list (e.g. orders: [{...}, {...}]), looks for common ID keys
+    (e.g. 'order_id', 'id', 'key', 'code', 'number') to distinguish unique entities.
+    If no ID key exists, hashes/serializes the item to count unique items without double-counting.
+    """
+    node_sets: Dict[str, Set[Any]] = {}
+
+    def _traverse(node: Any, current_path: str = "") -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                child_path = f"{current_path}.{k}" if current_path else k
+                if isinstance(v, list):
+                    if child_path not in node_sets:
+                        node_sets[child_path] = set()
+                    for elem in v:
+                        if isinstance(elem, dict):
+                            # Try to identify an ID field in this dict
+                            id_val = None
+                            for id_candidate in ("id", f"{k}_id", f"{k[:-1]}_id" if k.endswith("s") else f"{k}_id", "code", "key", "number"):
+                                if id_candidate in elem and not is_blank(elem[id_candidate]):
+                                    id_val = (id_candidate, str(elem[id_candidate]))
+                                    break
+                            if id_val is not None:
+                                node_sets[child_path].add(id_val)
+                            else:
+                                # Fallback to deterministic serialization of the dict keys/values
+                                try:
+                                    node_sets[child_path].add(json.dumps(elem, sort_keys=True))
+                                except Exception:
+                                    node_sets[child_path].add(id(elem))
+                            _traverse(elem, child_path)
+                        else:
+                            node_sets[child_path].add(elem)
+                elif isinstance(v, dict):
+                    _traverse(v, child_path)
+        elif isinstance(node, list):
+            for elem in node:
+                _traverse(elem, current_path)
+
+    _traverse(payload_obj)
+    return node_sets
+
+
 def compute_meta_summary(payloads_df: Any) -> Any:
     """Compute an aggregated metadata summary DataFrame from a payloads DataFrame.
 
@@ -218,47 +264,73 @@ def compute_meta_summary(payloads_df: Any) -> Any:
     - avg_rows_per_payload: average rows per payload batch (rounded to 1 decimal)
     - min_rows: minimum batch size
     - max_rows: maximum batch size
+    - node_totals: dictionary mapping each entity node name to its unique count
 
     Includes an 'ALL / TOTAL' row at the end.
     Returns a pandas.DataFrame or polars.DataFrame matching the input type.
     """
+    meta_cols = [
+        "condition_rule",
+        "condition_value",
+        "payload_count",
+        "total_rows",
+        "avg_rows_per_payload",
+        "min_rows",
+        "max_rows",
+        "node_totals",
+    ]
+
     if len(payloads_df) == 0:
-        cols = [
-            "condition_rule",
-            "condition_value",
-            "payload_count",
-            "total_rows",
-            "avg_rows_per_payload",
-            "min_rows",
-            "max_rows",
-        ]
         target_type = "polars" if is_polars_df(payloads_df) else "pandas"
-        return create_output_dataframe([], cols, target_type=target_type)
+        return create_output_dataframe([], meta_cols, target_type=target_type)
 
     # Standardize data to Python records for clean aggregation
+    has_payload_col = "payload" in payloads_df.columns
+    cols_to_select = ["condition_rule", "condition_value", "rows_in_payload"]
+    if has_payload_col:
+        cols_to_select.append("payload")
+
     if is_polars_df(payloads_df):
-        rows = payloads_df.select([
-            "condition_rule",
-            "condition_value",
-            "rows_in_payload",
-        ]).to_dicts()
+        rows = payloads_df.select(cols_to_select).to_dicts()
         target_type = "polars"
     else:
-        rows = payloads_df[[
-            "condition_rule",
-            "condition_value",
-            "rows_in_payload",
-        ]].to_dict(orient="records")
+        rows = payloads_df[cols_to_select].to_dict(orient="records")
         target_type = "pandas"
 
-    # Group metrics in memory preserving order
+    # Group metrics and track unique entities per condition key
     grouped: Dict[Tuple[str, str], List[int]] = {}
+    condition_nodes: Dict[Tuple[str, str], Dict[str, Set[Any]]] = {}
+    all_nodes: Dict[str, Set[Any]] = {}
+
     for r in rows:
         key = (str(r.get("condition_rule", "") or ""), str(r.get("condition_value", "") or ""))
         cnt = int(r.get("rows_in_payload", 0) or 0)
         if key not in grouped:
             grouped[key] = []
+            condition_nodes[key] = {}
         grouped[key].append(cnt)
+
+        # Parse and extract nodes if payload is present
+        raw_p = r.get("payload")
+        if raw_p is not None:
+            if isinstance(raw_p, str):
+                try:
+                    p_obj = json.loads(raw_p)
+                except Exception:
+                    p_obj = None
+            else:
+                p_obj = raw_p
+
+            if p_obj is not None:
+                p_nodes = _extract_unique_nodes(p_obj)
+                for node_name, node_set in p_nodes.items():
+                    if node_name not in condition_nodes[key]:
+                        condition_nodes[key][node_name] = set()
+                    condition_nodes[key][node_name].update(node_set)
+
+                    if node_name not in all_nodes:
+                        all_nodes[node_name] = set()
+                    all_nodes[node_name].update(node_set)
 
     meta_records: List[Dict[str, Any]] = []
     total_payloads_all = 0
@@ -276,6 +348,11 @@ def compute_meta_summary(payloads_df: Any) -> Any:
         total_rows_all += t_rows
         all_sizes.extend(sizes)
 
+        # Convert node sets to counts
+        nodes_dict = {
+            node_name: len(s) for node_name, s in condition_nodes.get((c_rule, c_val), {}).items()
+        }
+
         meta_records.append({
             "condition_rule": c_rule,
             "condition_value": c_val,
@@ -284,6 +361,7 @@ def compute_meta_summary(payloads_df: Any) -> Any:
             "avg_rows_per_payload": avg_r,
             "min_rows": min_r,
             "max_rows": max_r,
+            "node_totals": nodes_dict,
         })
 
     # Add TOTAL row if there's at least one group
@@ -291,6 +369,8 @@ def compute_meta_summary(payloads_df: Any) -> Any:
         avg_all = round(total_rows_all / total_payloads_all, 1) if total_payloads_all > 0 else 0.0
         min_all = min(all_sizes) if all_sizes else 0
         max_all = max(all_sizes) if all_sizes else 0
+        all_nodes_dict = {node_name: len(s) for node_name, s in all_nodes.items()}
+
         meta_records.append({
             "condition_rule": "ALL",
             "condition_value": "TOTAL",
@@ -299,16 +379,8 @@ def compute_meta_summary(payloads_df: Any) -> Any:
             "avg_rows_per_payload": avg_all,
             "min_rows": min_all,
             "max_rows": max_all,
+            "node_totals": all_nodes_dict,
         })
 
-    meta_cols = [
-        "condition_rule",
-        "condition_value",
-        "payload_count",
-        "total_rows",
-        "avg_rows_per_payload",
-        "min_rows",
-        "max_rows",
-    ]
     return create_output_dataframe(meta_records, meta_cols, target_type=target_type)
 

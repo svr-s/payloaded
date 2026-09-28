@@ -313,7 +313,7 @@ class HierarchyEngine:
         for entity in self.entities:
             for m in entity.mappings:
                 if m.formula:
-                    if m.compiled_formula:
+                    if m.compiled_formula and not entity.source_column:
                         for ref_col in m.compiled_formula.referenced_columns:
                             matched = _match_column_name(ref_col, df_cols)
                             if matched is None:
@@ -527,6 +527,26 @@ class HierarchyEngine:
         else:
             child_id = f"{child_entity.path}_{id(sub_df)}"
 
+        if child_entity.source_column and grandchildren:
+            matched_col = _match_column_name(child_entity.source_column, list(sub_df.columns))
+            # Clone child_entity with source_column=None so item evaluation does not re-explode
+            item_entity = copy.copy(child_entity)
+            item_entity.source_column = None
+
+            items: List[Tuple[dict, int]] = []
+            for _, row in sub_df.iterrows():
+                parent_rec = row.to_dict()
+                cell_val = parent_rec.get(matched_col) if matched_col else None
+                cell_items = _extract_cell_items(cell_val)
+                for item_dict in cell_items:
+                    item_rec = _resolve_item_record(child_entity, item_dict, parent_rec)
+                    item_df = pd.DataFrame([item_rec])
+                    c_items = self._process_child_element(
+                        item_df, child_elem_template, item_entity, grandchildren, parent_id=parent_id
+                    )
+                    items.extend(c_items)
+            return items
+
         if not grandchildren:
             # Check if this child entity explodes a single cell column
             if child_entity.source_column:
@@ -624,22 +644,40 @@ class HierarchyEngine:
                         for k in gc_ent.group_by
                     ]
 
-                if gc_group_cols:
-                    grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
-                    for _, gc_df in grouped:
-                        row_record = gc_df.iloc[0].to_dict()
-                        rendered_gc = self._hydrate_dict(
-                            gc_elem_template, row_record, gc_ent, parent_id=child_id
+                # Check if this grandchild has deeper descendants (e.g. orders.line_items.sub_items)
+                deeper_prefix = f"{gc_ent.path}."
+                deeper_descendants = [e for e in grandchildren if e.path.startswith(deeper_prefix)]
+
+                if deeper_descendants:
+                    if gc_group_cols:
+                        grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
+                        for _, gc_df in grouped:
+                            sub_gc_items = self._process_child_element(
+                                gc_df, gc_elem_template, gc_ent, deeper_descendants, parent_id=child_id
+                            )
+                            gc_items.extend(sub_gc_items)
+                    else:
+                        sub_gc_items = self._process_child_element(
+                            sub_df, gc_elem_template, gc_ent, deeper_descendants, parent_id=child_id
                         )
-                        gc_items.append((rendered_gc, len(gc_df)))
+                        gc_items.extend(sub_gc_items)
                 else:
-                    # Every row is a grandchild item
-                    for _, row in sub_df.iterrows():
-                        row_record = row.to_dict()
-                        rendered_gc = self._hydrate_dict(
-                            gc_elem_template, row_record, gc_ent, parent_id=child_id
-                        )
-                        gc_items.append((rendered_gc, 1))
+                    if gc_group_cols:
+                        grouped = sub_df.groupby(gc_group_cols, sort=False, dropna=False)
+                        for _, gc_df in grouped:
+                            row_record = gc_df.iloc[0].to_dict()
+                            rendered_gc = self._hydrate_dict(
+                                gc_elem_template, row_record, gc_ent, parent_id=child_id
+                            )
+                            gc_items.append((rendered_gc, len(gc_df)))
+                    else:
+                        # Every row is a grandchild item
+                        for _, row in sub_df.iterrows():
+                            row_record = row.to_dict()
+                            rendered_gc = self._hydrate_dict(
+                                gc_elem_template, row_record, gc_ent, parent_id=child_id
+                            )
+                            gc_items.append((rendered_gc, 1))
 
             gc_chunks = _split_into_chunks(gc_items, gc_ent.repeat_limit)
             gc_chunks_by_key[gc_rel_key] = (gc_ent, gc_chunks)
