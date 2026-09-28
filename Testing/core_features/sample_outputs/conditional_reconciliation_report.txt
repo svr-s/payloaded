@@ -1,0 +1,8 @@
+==================================================
+Audit Reconciliation Report: PASSED (Zero Data Loss)
+==================================================
+Total Source Rows : 6
+Total Packed Rows : 6
+Total Payloads    : 3
+Discrepancy       : 0
+==================================================

@@ -1,0 +1,10 @@
+[
+  {
+    "batch_id": "B001",
+    "cancellations": [
+      {
+        "order_id": "ORD_104"
+      }
+    ]
+  }
+]

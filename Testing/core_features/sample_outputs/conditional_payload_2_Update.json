@@ -1,0 +1,20 @@
+[
+  {
+    "batch_id": "B001",
+    "orders": [
+      {
+        "order_id": "ORD_103",
+        "line_items": [
+          {
+            "sku": "SKU_04",
+            "qty": 5
+          },
+          {
+            "sku": "SKU_05",
+            "qty": 3
+          }
+        ]
+      }
+    ]
+  }
+]

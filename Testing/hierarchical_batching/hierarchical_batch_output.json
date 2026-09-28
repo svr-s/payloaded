@@ -1,0 +1,306 @@
+{
+  "summary": {
+    "total_payloads": 2,
+    "total_source_rows": 60,
+    "payload_1_rows": 40,
+    "payload_2_rows": 20
+  },
+  "payload_1": {
+    "batch_id": "BATCH_001",
+    "orders": [
+      {
+        "order_id": "ORD_01",
+        "order_val": 100,
+        "line_items": [
+          {
+            "line_id": "LINE_1_01",
+            "line_name": "Item 1"
+          },
+          {
+            "line_id": "LINE_1_02",
+            "line_name": "Item 2"
+          },
+          {
+            "line_id": "LINE_1_03",
+            "line_name": "Item 3"
+          },
+          {
+            "line_id": "LINE_1_04",
+            "line_name": "Item 4"
+          },
+          {
+            "line_id": "LINE_1_05",
+            "line_name": "Item 5"
+          },
+          {
+            "line_id": "LINE_1_06",
+            "line_name": "Item 6"
+          },
+          {
+            "line_id": "LINE_1_07",
+            "line_name": "Item 7"
+          },
+          {
+            "line_id": "LINE_1_08",
+            "line_name": "Item 8"
+          },
+          {
+            "line_id": "LINE_1_09",
+            "line_name": "Item 9"
+          },
+          {
+            "line_id": "LINE_1_10",
+            "line_name": "Item 10"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_01",
+        "order_val": 100,
+        "line_items": [
+          {
+            "line_id": "LINE_1_11",
+            "line_name": "Item 11"
+          },
+          {
+            "line_id": "LINE_1_12",
+            "line_name": "Item 12"
+          },
+          {
+            "line_id": "LINE_1_13",
+            "line_name": "Item 13"
+          },
+          {
+            "line_id": "LINE_1_14",
+            "line_name": "Item 14"
+          },
+          {
+            "line_id": "LINE_1_15",
+            "line_name": "Item 15"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_02",
+        "order_val": 200,
+        "line_items": [
+          {
+            "line_id": "LINE_2_01",
+            "line_name": "Item 1"
+          },
+          {
+            "line_id": "LINE_2_02",
+            "line_name": "Item 2"
+          },
+          {
+            "line_id": "LINE_2_03",
+            "line_name": "Item 3"
+          },
+          {
+            "line_id": "LINE_2_04",
+            "line_name": "Item 4"
+          },
+          {
+            "line_id": "LINE_2_05",
+            "line_name": "Item 5"
+          },
+          {
+            "line_id": "LINE_2_06",
+            "line_name": "Item 6"
+          },
+          {
+            "line_id": "LINE_2_07",
+            "line_name": "Item 7"
+          },
+          {
+            "line_id": "LINE_2_08",
+            "line_name": "Item 8"
+          },
+          {
+            "line_id": "LINE_2_09",
+            "line_name": "Item 9"
+          },
+          {
+            "line_id": "LINE_2_10",
+            "line_name": "Item 10"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_02",
+        "order_val": 200,
+        "line_items": [
+          {
+            "line_id": "LINE_2_11",
+            "line_name": "Item 11"
+          },
+          {
+            "line_id": "LINE_2_12",
+            "line_name": "Item 12"
+          },
+          {
+            "line_id": "LINE_2_13",
+            "line_name": "Item 13"
+          },
+          {
+            "line_id": "LINE_2_14",
+            "line_name": "Item 14"
+          },
+          {
+            "line_id": "LINE_2_15",
+            "line_name": "Item 15"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_03",
+        "order_val": 300,
+        "line_items": [
+          {
+            "line_id": "LINE_3_01",
+            "line_name": "Item 1"
+          },
+          {
+            "line_id": "LINE_3_02",
+            "line_name": "Item 2"
+          },
+          {
+            "line_id": "LINE_3_03",
+            "line_name": "Item 3"
+          },
+          {
+            "line_id": "LINE_3_04",
+            "line_name": "Item 4"
+          },
+          {
+            "line_id": "LINE_3_05",
+            "line_name": "Item 5"
+          },
+          {
+            "line_id": "LINE_3_06",
+            "line_name": "Item 6"
+          },
+          {
+            "line_id": "LINE_3_07",
+            "line_name": "Item 7"
+          },
+          {
+            "line_id": "LINE_3_08",
+            "line_name": "Item 8"
+          },
+          {
+            "line_id": "LINE_3_09",
+            "line_name": "Item 9"
+          },
+          {
+            "line_id": "LINE_3_10",
+            "line_name": "Item 10"
+          }
+        ]
+      }
+    ]
+  },
+  "payload_2": {
+    "batch_id": "BATCH_001",
+    "orders": [
+      {
+        "order_id": "ORD_03",
+        "order_val": 300,
+        "line_items": [
+          {
+            "line_id": "LINE_3_11",
+            "line_name": "Item 11"
+          },
+          {
+            "line_id": "LINE_3_12",
+            "line_name": "Item 12"
+          },
+          {
+            "line_id": "LINE_3_13",
+            "line_name": "Item 13"
+          },
+          {
+            "line_id": "LINE_3_14",
+            "line_name": "Item 14"
+          },
+          {
+            "line_id": "LINE_3_15",
+            "line_name": "Item 15"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_04",
+        "order_val": 400,
+        "line_items": [
+          {
+            "line_id": "LINE_4_01",
+            "line_name": "Item 1"
+          },
+          {
+            "line_id": "LINE_4_02",
+            "line_name": "Item 2"
+          },
+          {
+            "line_id": "LINE_4_03",
+            "line_name": "Item 3"
+          },
+          {
+            "line_id": "LINE_4_04",
+            "line_name": "Item 4"
+          },
+          {
+            "line_id": "LINE_4_05",
+            "line_name": "Item 5"
+          },
+          {
+            "line_id": "LINE_4_06",
+            "line_name": "Item 6"
+          },
+          {
+            "line_id": "LINE_4_07",
+            "line_name": "Item 7"
+          },
+          {
+            "line_id": "LINE_4_08",
+            "line_name": "Item 8"
+          },
+          {
+            "line_id": "LINE_4_09",
+            "line_name": "Item 9"
+          },
+          {
+            "line_id": "LINE_4_10",
+            "line_name": "Item 10"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD_04",
+        "order_val": 400,
+        "line_items": [
+          {
+            "line_id": "LINE_4_11",
+            "line_name": "Item 11"
+          },
+          {
+            "line_id": "LINE_4_12",
+            "line_name": "Item 12"
+          },
+          {
+            "line_id": "LINE_4_13",
+            "line_name": "Item 13"
+          },
+          {
+            "line_id": "LINE_4_14",
+            "line_name": "Item 14"
+          },
+          {
+            "line_id": "LINE_4_15",
+            "line_name": "Item 15"
+          }
+        ]
+      }
+    ]
+  }
+}

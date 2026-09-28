@@ -1,0 +1,60 @@
+index,condition_rule,condition_value,rows_in_payload,running_total,payload,source_filename
+1,~Terminated,New,3,3,"[
+  {
+    ""batch_id"": ""B001"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_101"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_01"",
+            ""qty"": 2
+          },
+          {
+            ""sku"": ""SKU_02"",
+            ""qty"": 4
+          }
+        ]
+      },
+      {
+        ""order_id"": ""ORD_102"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_03"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  }
+]",source_data
+2,~Terminated,Update,2,5,"[
+  {
+    ""batch_id"": ""B001"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_103"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_04"",
+            ""qty"": 5
+          },
+          {
+            ""sku"": ""SKU_05"",
+            ""qty"": 3
+          }
+        ]
+      }
+    ]
+  }
+]",source_data
+3,Terminated,Terminated,1,6,"[
+  {
+    ""batch_id"": ""B001"",
+    ""cancellations"": [
+      {
+        ""order_id"": ""ORD_104""
+      }
+    ]
+  }
+]",source_data

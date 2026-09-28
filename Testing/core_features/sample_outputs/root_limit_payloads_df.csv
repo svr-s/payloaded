@@ -1,0 +1,82 @@
+index,condition_rule,condition_value,rows_in_payload,running_total,payload,source_filename
+1,,,2,2,"[
+  {
+    ""batch_id"": ""BATCH_1"",
+    ""group_id"": ""GRP_BETA"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_1"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_1"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    ""batch_id"": ""BATCH_2"",
+    ""group_id"": ""GRP_BETA"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_2"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_2"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  }
+]",source_data
+2,,,2,4,"[
+  {
+    ""batch_id"": ""BATCH_3"",
+    ""group_id"": ""GRP_BETA"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_3"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_3"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    ""batch_id"": ""BATCH_4"",
+    ""group_id"": ""GRP_BETA"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_4"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_4"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  }
+]",source_data
+3,,,1,5,"[
+  {
+    ""batch_id"": ""BATCH_5"",
+    ""group_id"": ""GRP_BETA"",
+    ""orders"": [
+      {
+        ""order_id"": ""ORD_5"",
+        ""line_items"": [
+          {
+            ""sku"": ""SKU_5"",
+            ""qty"": 1
+          }
+        ]
+      }
+    ]
+  }
+]",source_data

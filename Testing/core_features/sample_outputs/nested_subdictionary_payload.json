@@ -1,0 +1,28 @@
+[
+  {
+    "batchid": "BATCH-001",
+    "location": "loc01",
+    "orders": [
+      {
+        "orderid": "ORD-101",
+        "ordertotal": 250.0,
+        "lineitems": [
+          {
+            "lineid": "L1",
+            "namecode": {
+              "codevalue": "PRD-99",
+              "shortname": "toy01"
+            }
+          },
+          {
+            "lineid": "L2",
+            "namecode": {
+              "codevalue": "PRD-100",
+              "shortname": "toy01"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "batch_id": "BATCH_5",
+    "group_id": "GRP_BETA",
+    "orders": [
+      {
+        "order_id": "ORD_5",
+        "line_items": [
+          {
+            "sku": "SKU_5",
+            "qty": 1
+          }
+        ]
+      }
+    ]
+  }
+]
