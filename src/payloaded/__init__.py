@@ -15,6 +15,14 @@ from payloaded.expressions import (
 )
 from payloaded.models import ConditionConfig, EntityConfig, FieldMapping, PayloadConfig
 
+from payloaded import testing
+from payloaded.testing import (
+    assert_meta_balanced,
+    assert_node_counts,
+    assert_payload_schema,
+    assert_reconciled,
+)
+
 __version__ = "0.2.0"
 
 __all__ = [
@@ -34,5 +42,10 @@ __all__ = [
     "FormulaError",
     "FormulaSecurityError",
     "FormulaEvaluationError",
+    "testing",
+    "assert_payload_schema",
+    "assert_reconciled",
+    "assert_node_counts",
+    "assert_meta_balanced",
 ]
 

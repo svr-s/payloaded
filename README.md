@@ -480,6 +480,40 @@ The resulting DataFrame contains 8 canonical columns for end-to-end traceability
 
 ---
 
+## Built-In Testing Framework (`payloaded.testing`)
+
+For data engineering pipelines and CI/CD validation, `payloaded` provides testing assertions out of the box (`from payloaded import testing` or `from payloaded.testing import ...`):
+
+```python
+from payloaded.testing import (
+    assert_payload_schema,
+    assert_reconciled,
+    assert_node_counts,
+    assert_meta_balanced,
+)
+
+# 1. Assert canonical 8-column schema integrity
+assert_payload_schema(df_payloads)
+
+# 2. Assert zero data loss with exact source row count
+assert_reconciled(df_payloads, expected_rows=len(df_source))
+
+# 3. Assert entity node counts across all payloads or per payload
+assert_node_counts(
+    df_payloads,
+    expected_totals={"orders": 100, "orders.items": 450},
+)
+
+# 4. Assert metadata summary balance and summary totals
+assert_meta_balanced(
+    meta_df,
+    expected_payload_count=10,
+    expected_total_rows=len(df_source),
+)
+```
+
+---
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
