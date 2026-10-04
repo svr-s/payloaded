@@ -84,3 +84,45 @@ class PayloadTemplate:
     def get_template_clone(self) -> Union[dict, list]:
         """Return a deep copy of the raw template."""
         return copy.deepcopy(self.raw_template)
+
+
+def render_envelope(
+    envelope: Any,
+    payload_batch: Any,
+    record: Optional[Dict[str, Any]] = None,
+    mappings_by_key: Optional[Dict[str, FieldMapping]] = None,
+) -> Any:
+    """Inject a generated payload batch into a wrapper envelope structure.
+
+    Replaces '{payload_template}' or '{payload}' placeholder with payload_batch,
+    and substitutes any header/metadata placeholders using record.
+    """
+    if envelope is None:
+        return payload_batch
+
+    if isinstance(envelope, str):
+        try:
+            parsed = json.loads(envelope)
+            return render_envelope(parsed, payload_batch, record, mappings_by_key)
+        except Exception:
+            pass
+
+    mappings = mappings_by_key or {}
+    rec = record or {}
+
+    def _traverse(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: _traverse(v) for k, v in node.items()}
+        elif isinstance(node, list):
+            return [_traverse(item) for item in node]
+        elif isinstance(node, str):
+            stripped = node.strip()
+            if stripped in ("{payload_template}", "{payload}"):
+                return payload_batch
+            # Render placeholders if present
+            if "{" in node and "}" in node and rec:
+                return _render_value(node, rec, mappings)
+            return node
+        return node
+
+    return _traverse(envelope)

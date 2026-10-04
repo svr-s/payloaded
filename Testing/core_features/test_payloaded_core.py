@@ -2082,6 +2082,86 @@ def test_batch_3_children_with_1_2_3_grandchildren():
     assert node_totals["shipments.customs"] == 1
 
 
+def test_wrapper_envelope_injection():
+    """Verify that wrapper_envelope embeds generated payloads and hydrates header fields."""
+    df = pd.DataFrame([
+        {
+            "batch_id": "BATCH_99",
+            "terminal": "CLOCK1",
+            "badge": "B101",
+            "action": "lunchout",
+        },
+        {
+            "batch_id": "BATCH_99",
+            "terminal": "CLOCK1",
+            "badge": "B102",
+            "action": "lunchin",
+        },
+    ])
 
+    config = {
+        "condition_source_key": "",
+        "conditions": [
+            {
+                "wrapper_envelope": {
+                    "batchID": "{batch_id}",
+                    "events": [
+                        {
+                            "serviceCategoryCode": {"codeValue": "core"},
+                            "data": {
+                                "transform": {
+                                    "dataCollectionEntries": "{payload_template}"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "payload_template": [
+                    {
+                        "terminalName": "{terminal}",
+                        "workerEntries": [
+                            {
+                                "badgeID": "{badge}",
+                                "actionCode": {"codeValue": "{action}"}
+                            }
+                        ]
+                    }
+                ],
+                "entities": [
+                    {
+                        "path": "root",
+                        "group_by": ["terminal"],
+                        "mappings": [
+                            {"payload_key": "batch_id", "source_key": "batch_id"},
+                            {"payload_key": "terminal", "source_key": "terminal"},
+                        ],
+                    },
+                    {
+                        "path": "workerEntries",
+                        "mappings": [
+                            {"payload_key": "badge", "source_key": "badge"},
+                            {"payload_key": "action", "source_key": "action"},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
 
+    df_payloads, meta_df = pld.build_payloads(source=df, config=config, output_format="dict")
+    assert len(df_payloads) == 1
+    p = df_payloads["payload"].iloc[0]
+
+    assert p["batchID"] == "BATCH_99"
+    assert "events" in p
+    assert p["events"][0]["serviceCategoryCode"]["codeValue"] == "core"
+    entries = p["events"][0]["data"]["transform"]["dataCollectionEntries"]
+    assert len(entries) == 1
+    assert entries[0]["terminalName"] == "CLOCK1"
+    workers = entries[0]["workerEntries"]
+    assert len(workers) == 2
+    assert workers[0]["badgeID"] == "B101"
+    assert workers[0]["actionCode"]["codeValue"] == "lunchout"
+    assert workers[1]["badgeID"] == "B102"
+    assert workers[1]["actionCode"]["codeValue"] == "lunchin"
 

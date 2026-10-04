@@ -13,6 +13,7 @@ from payloaded.expressions import (
     FormulaSecurityError,
     GeneratorContext,
 )
+from payloaded.template import PayloadTemplate, render_envelope
 from payloaded.models import ConditionConfig, EntityConfig, FieldMapping, PayloadConfig
 
 from payloaded import testing
@@ -42,6 +43,8 @@ __all__ = [
     "FormulaError",
     "FormulaSecurityError",
     "FormulaEvaluationError",
+    "PayloadTemplate",
+    "render_envelope",
     "testing",
     "assert_payload_schema",
     "assert_reconciled",

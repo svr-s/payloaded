@@ -9,7 +9,7 @@ from payloaded.compat import is_null_or_nan
 from payloaded.engine import HierarchyEngine, _match_column_name
 from payloaded.expressions import GeneratorContext
 from payloaded.models import ConditionConfig, PayloadConfig
-from payloaded.template import PayloadTemplate
+from payloaded.template import PayloadTemplate, render_envelope
 
 
 def _eval_rule(cell_val: str, rules: List[str]) -> bool:
@@ -81,6 +81,19 @@ class ConditionRouter:
             engine = HierarchyEngine(primary_condition.entities, template, gen_context=self.gen_context)
             results = engine.process_dataframe(df)
             rule_str = ", ".join(primary_condition.condition_rule)
+            env = primary_condition.wrapper_envelope
+            if env is not None:
+                rep_record = df.iloc[0].to_dict() if not df.empty else {}
+                wrapped_results = []
+                for data, count in results:
+                    wrapped_data = render_envelope(
+                        env,
+                        data,
+                        record=rep_record,
+                        mappings_by_key=engine.mappings_by_payload_key,
+                    )
+                    wrapped_results.append((wrapped_data, count, rule_str, ""))
+                return wrapped_results
             return [(data, count, rule_str, "") for data, count in results]
 
         # ---------------------------------------------------------
@@ -143,8 +156,19 @@ class ConditionRouter:
                     continue
 
                 engine_results = engine.process_dataframe(sub_df)
+                env = condition.wrapper_envelope
+                rep_record = sub_df.iloc[0].to_dict() if not sub_df.empty else {}
                 for data, count in engine_results:
-                    payload_records.append((data, count, rule_label, dist_str))
+                    if env is not None:
+                        wrapped_data = render_envelope(
+                            env,
+                            data,
+                            record=rep_record,
+                            mappings_by_key=engine.mappings_by_payload_key,
+                        )
+                        payload_records.append((wrapped_data, count, rule_label, dist_str))
+                    else:
+                        payload_records.append((data, count, rule_label, dist_str))
 
         # Check for unrouted/unclaimed rows
         unclaimed_count = len(df) - len(claimed_indices)

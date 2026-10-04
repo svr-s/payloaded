@@ -171,6 +171,7 @@ class ConditionConfig:
 
     condition_rule: List[str] = field(default_factory=list)
     payload_template: Any = None
+    wrapper_envelope: Any = None
     entities: List[EntityConfig] = field(default_factory=list)
 
     @classmethod
@@ -186,12 +187,14 @@ class ConditionConfig:
             condition_rule = []
 
         template = data.get("payload_template", default_template)
+        wrapper_envelope = data.get("wrapper_envelope")
         raw_entities = data.get("entities", [])
         entities = [EntityConfig.from_dict(e) for e in raw_entities]
 
         return cls(
             condition_rule=condition_rule,
             payload_template=template,
+            wrapper_envelope=wrapper_envelope,
             entities=entities,
         )
 
@@ -242,11 +245,13 @@ class PayloadConfig:
         elif "entities" in data:
             # Unconditional mode via legacy flat structure
             template = data.get("payload_template", default_template)
+            wrapper_envelope = data.get("wrapper_envelope")
             raw_entities = data.get("entities", [])
             entities = [EntityConfig.from_dict(e) for e in raw_entities]
             conditions.append(ConditionConfig(
                 condition_rule=[],
                 payload_template=template,
+                wrapper_envelope=wrapper_envelope,
                 entities=entities,
             ))
 

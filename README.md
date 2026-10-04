@@ -37,6 +37,7 @@ config = {
     "conditions": [
         {
             "condition_rule": ["~Terminated"],  # Rule list, or [] if unconditional
+            "wrapper_envelope": { ... },         # Optional API envelope containing "{payload_template}"
             "payload_template": [ ... ],         # Payload JSON structure skeleton
             "entities": [ ... ]                  # Hierarchy, grouping, and field mappings
         }
@@ -208,7 +209,29 @@ config = {
 }
 ```
 
-### 1. Built-in Function Reference
+### 1. Concatenation & String Operations
+
+You can concatenate multiple columns, literals, and transforms using either:
+- **`&` (Ampersand)**: Excel / PowerQuery style concatenation (recommended)
+- **`+` (Plus)**: Python / JavaScript style string concatenation
+
+```json
+{
+  "payload_key": "full_name",
+  "formula": "{first_name} & ' ' & {last_name}"
+}
+```
+
+```json
+{
+  "payload_key": "tracking_code",
+  "formula": "upper(strip({country})) & '-' & lpad({id}, 6, '0') & '-' & replace({batch_num}, ':', '')"
+}
+```
+
+---
+
+### 2. Built-in Function Reference
 
 | Function | Description | Example |
 |---|---|---|
@@ -223,6 +246,45 @@ config = {
 | `uuid()` | Generates unique UUID v4 | `uuid()` |
 | `int(val)` / `float(val)` / `str(val)` | Type casting | `int({qty})` |
 | `json(val)` | Parses string into native JSON object/array | `json({raw_orders})` |
+
+---
+
+## Static Wrapper Envelopes
+
+Enterprise APIs (e.g., ADP, Workday, Salesforce) commonly wrap batch payload arrays inside boilerplate envelopes with headers and service metadata. 
+
+Use **`wrapper_envelope`** directly inside any condition with the `"{payload_template}"` (or `"{payload}"`) placeholder. The engine will chunk and reconcile the business data inside `payload_template`, then seamlessly inject the batch into the envelope:
+
+```json
+{
+  "conditions": [
+    {
+      "wrapper_envelope": {
+        "batchID": "{batch_id}",
+        "events": [
+          {
+            "serviceCategoryCode": { "codeValue": "core" },
+            "data": {
+              "transform": {
+                "dataCollectionEntries": "{payload_template}"
+              }
+            }
+          }
+        ]
+      },
+      "payload_template": [
+        {
+          "itemID": "{item_id}",
+          "workerDataCollectionEntries": [ ... ]
+        }
+      ],
+      "entities": [ ... ]
+    }
+  ]
+}
+```
+
+Any `{...}` placeholders in the wrapper (such as `{batch_id}`) are automatically populated from the batch's representative record.
 
 ---
 
