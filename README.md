@@ -260,22 +260,19 @@ Use **`wrapper_envelope`** directly inside any condition with the `"{payload_tem
   "conditions": [
     {
       "wrapper_envelope": {
-        "batchID": "{batch_id}",
-        "events": [
-          {
-            "serviceCategoryCode": { "codeValue": "core" },
-            "data": {
-              "transform": {
-                "dataCollectionEntries": "{payload_template}"
-              }
-            }
-          }
-        ]
+        "batchHeader": {
+          "batchId": "{batch_id}",
+          "sourceSystem": "ERP_INGEST",
+          "timestamp": "{created_at}"
+        },
+        "payload": {
+          "orders": "{payload_template}"
+        }
       },
       "payload_template": [
         {
-          "itemID": "{item_id}",
-          "workerDataCollectionEntries": [ ... ]
+          "orderId": "{order_id}",
+          "lineItems": [ ... ]
         }
       ],
       "entities": [ ... ]
@@ -284,7 +281,7 @@ Use **`wrapper_envelope`** directly inside any condition with the `"{payload_tem
 }
 ```
 
-Any `{...}` placeholders in the wrapper (such as `{batch_id}`) are automatically populated from the batch's representative record.
+Any `{...}` placeholders in the wrapper (such as `{batch_id}` and `{created_at}`) are automatically populated from the batch's representative record.
 
 ---
 
