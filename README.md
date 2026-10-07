@@ -299,16 +299,21 @@ Any `{...}` placeholders in the wrapper (such as `{batch_id}` and `{created_at}`
 Child entities in API payloads (e.g. invoice lines, order items) frequently require auto-incrementing line numbers that don't exist in source tabular data. `payloaded` provides stateful sequence generators with explicit scoping:
 
 ```python
-sequence(start=1, step=1, scope="parent")   # Default: Resets per parent entity
-sequence(start=100, step=1, scope="global") # Never resets: counts continuously across all payloads
+sequence(start=1, step=1, scope="parent")   # Default: Resets per parent entity instance
+sequence(start=1, step=1, scope="payload")  # Resets to start for each payload file/envelope generated
+sequence(start=100, step=1, scope="global") # Counts continuously across all rows/payloads
 ```
 
-### Scoping Behavior
+### Scoping Behavior & Field Isolation
+
+- **Automatic Field Isolation**: Each mapping formula is assigned an isolated counter derived from its entity path and payload key (e.g. `root.itemID` vs `workerDataCollectionEntries.entryID`), or explicitly via `sequence(..., id="custom_id")`. Different fields calling `sequence()` never collide or steal numbers from each other.
+- **Ungrouped & Chunked Parent Resets**: When a parent item has `repeat_limit` without `group_by`, child entries under `scope='parent'` reset per parent item instance.
 
 | Scope | Under `line_items` | Under `orders` | Across Split Chunks |
 |---|---|---|---|
-| **`parent`** *(default)* | Resets to `start` for **each Order** | Resets to `start` for **each Batch** | **Continues across chunks** (e.g. Order 101 chunk 1 has lines 1–40; chunk 2 continues with 41–80; next Order 102 resets to 1) |
-| **`global`** | Counts continuously across all rows | Counts continuously across all rows | Never resets (e.g. 100, 101, 102...) |
+| **`parent`** *(default)* | Resets to `start` for **each Order** | Resets to `start` for **each Batch** | **Continues across chunks** for the same parent (e.g. Order 101 chunk 1 has lines 1–40; chunk 2 continues with 41–80; next Order 102 resets to 1) |
+| **`payload`** | Resets to `start` on **every payload** | Resets to `start` on **every payload** | Resets to `start` for each payload generated |
+| **`global`** | Counts continuously across all rows | Counts continuously across all rows | Never resets across rows or payloads (e.g. 1, 2, 3...) |
 
 #### Example: Line Item Numbering
 ```json
