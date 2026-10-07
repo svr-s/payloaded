@@ -836,8 +836,8 @@ class HierarchyEngine:
                 rendered_val = _render_value(val, lookup, self.mappings_by_payload_key)
 
                 # Check if this placeholder has omit_if_blank enabled
-                exact_match = re.fullmatch(r"\{([a-zA-Z0-9_\-\.]+)\}", str(val).strip())
-                mapping = self.mappings_by_payload_key.get(exact_match.group(1)) if exact_match else None
+                exact_match = re.fullmatch(r"(\$)?\{([a-zA-Z0-9_\-\.]+)\}", str(val).strip())
+                mapping = self.mappings_by_payload_key.get(exact_match.group(2)) if exact_match else None
                 if mapping is None and entity:
                     for m in entity.mappings:
                         if m.payload_key == key:

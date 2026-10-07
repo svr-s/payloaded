@@ -12,7 +12,8 @@ import pandas as pd
 from payloaded.compat import is_null_or_nan
 from payloaded.models import EntityConfig, FieldMapping, PayloadConfig
 
-PLACEHOLDER_REGEX = re.compile(r"\{([a-zA-Z0-9_\-\.]+)\}")
+# Matches either ${alias} or {source_col}
+PLACEHOLDER_REGEX = re.compile(r"(\$)?\{([a-zA-Z0-9_\-\.]+)\}")
 
 
 def _clean_scalar_value(val: Any) -> Any:
@@ -29,25 +30,26 @@ def _clean_scalar_value(val: Any) -> Any:
 def _render_value(template_val: Any, record: Dict[str, Any], mappings_by_key: Dict[str, FieldMapping]) -> Any:
     """Substitute placeholders in a template value using the current record data.
 
-    If the template value is strictly a single placeholder like '{item_qty}',
+    Supports both ${alias} (for mapped references) and {col_name} (for direct source columns).
+    If the template value is strictly a single placeholder like '${item_qty}' or '{item_qty}',
     the raw typed value (e.g. int/float) is preserved rather than stringified.
     """
     if not isinstance(template_val, str):
         return template_val
 
-    # Check if template_val is exactly a single placeholder '{key}'
-    exact_match = re.fullmatch(r"\{([a-zA-Z0-9_\-\.]+)\}", template_val.strip())
+    # Check if template_val is exactly a single placeholder '${key}' or '{key}'
+    exact_match = re.fullmatch(r"(\$)?\{([a-zA-Z0-9_\-\.]+)\}", template_val.strip())
     if exact_match:
-        key = exact_match.group(1)
+        key = exact_match.group(2)
         raw_val = record.get(key)
         mapping = mappings_by_key.get(key)
         if raw_val is None and mapping and mapping.default is not None:
             raw_val = mapping.default
         return _clean_scalar_value(raw_val)
 
-    # String with embedded placeholders (e.g. 'Order #{order_no}')
+    # String with embedded placeholders (e.g. 'Order #${order_no}' or 'Order #{order_no}')
     def _replace_match(match: re.Match) -> str:
-        key = match.group(1)
+        key = match.group(2)
         val = record.get(key)
         mapping = mappings_by_key.get(key)
         if val is None and mapping and mapping.default is not None:
@@ -94,8 +96,8 @@ def render_envelope(
 ) -> Any:
     """Inject a generated payload batch into a wrapper envelope structure.
 
-    Replaces '{payload_template}' or '{payload}' placeholder with payload_batch,
-    and substitutes any header/metadata placeholders using record.
+    Replaces '${payload_template}', '${payload}', '{payload_template}', or '{payload}'
+    placeholder with payload_batch, and substitutes any header/metadata placeholders using record.
     """
     if envelope is None:
         return payload_batch
@@ -117,7 +119,7 @@ def render_envelope(
             return [_traverse(item) for item in node]
         elif isinstance(node, str):
             stripped = node.strip()
-            if stripped in ("{payload_template}", "{payload}"):
+            if stripped in ("${payload_template}", "${payload}", "{payload_template}", "{payload}"):
                 return payload_batch
             # Render placeholders if present
             if "{" in node and "}" in node and rec:

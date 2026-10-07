@@ -2166,3 +2166,72 @@ def test_wrapper_envelope_injection():
     assert items[1]["quantity"] == 10
 
 
+def test_dollar_alias_syntax_and_envelope():
+    """Verify that ${alias} notation works seamlessly for template placeholders,
+    mapped references, and wrapper envelope injection via ${payload_template}.
+    """
+    df = pd.DataFrame([
+        {
+            "BatchNum": "BATCH_2026",
+            "EmpID": "E1001",
+            "FirstName": "Jane",
+            "LastName": "Doe",
+            "RoleCode": "ENG",
+        },
+    ])
+
+    config = {
+        "condition_source_key": "",
+        "conditions": [
+            {
+                "wrapper_envelope": {
+                    "header": {
+                        "batch": "{BatchNum}",
+                        "system": "HR_SYSTEM",
+                    },
+                    "envelope_body": "${payload_template}",
+                },
+                "payload_template": [
+                    {
+                        "id": "{EmpID}",
+                        "fullName": "${full_name_alias}",
+                        "role": "${role_ref}",
+                    }
+                ],
+                "entities": [
+                    {
+                        "path": "root",
+                        "mappings": [
+                            {"payload_key": "BatchNum", "source_key": "BatchNum"},
+                            {"payload_key": "EmpID", "source_key": "EmpID"},
+                            {
+                                "payload_key": "full_name_alias",
+                                "formula": "{FirstName} & ' ' & {LastName}",
+                            },
+                            {
+                                "payload_key": "role_ref",
+                                "source_key": "RoleCode",
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    df_payloads, _ = pld.build_payloads(source=df, config=config, output_format="dict")
+    assert len(df_payloads) == 1
+    result = df_payloads["payload"].iloc[0]
+
+    assert result["header"]["batch"] == "BATCH_2026"
+    assert result["header"]["system"] == "HR_SYSTEM"
+    body = result["envelope_body"]
+    assert isinstance(body, list)
+    assert len(body) == 1
+    emp = body[0]
+    assert emp["id"] == "E1001"
+    assert emp["fullName"] == "Jane Doe"
+    assert emp["role"] == "ENG"
+
+
+

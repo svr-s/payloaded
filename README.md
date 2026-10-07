@@ -37,7 +37,7 @@ config = {
     "conditions": [
         {
             "condition_rule": ["~Terminated"],  # Rule list, or [] if unconditional
-            "wrapper_envelope": { ... },         # Optional API envelope containing "{payload_template}"
+            "wrapper_envelope": { ... },         # Optional API envelope containing "${payload_template}"
             "payload_template": [ ... ],         # Payload JSON structure skeleton
             "entities": [ ... ]                  # Hierarchy, grouping, and field mappings
         }
@@ -47,20 +47,29 @@ config = {
 
 ---
 
-## Syntax Standards: Where to Use Curly Braces `{}`
+## Syntax Standards: Direct Source Columns `{col}` vs. Config Aliases `${alias}`
 
-To keep configurations clean, predictable, and avoid syntax errors, `payloaded` maintains a strict distinction between **Declarations** (plain strings) and **Dynamic Substitutions** (curly braces `{}`):
+To keep configurations clean, predictable, and avoid collisions with source DataFrame columns, `payloaded` maintains a strict, unambiguous notation standard:
 
-* **Declarations & Identifiers (NO `{}`)**: Schema keys, column pointers, and hierarchy paths must be plain text:
-  - `"payload_key": "order_id"` *(declares the placeholder identifier)*
-  - `"source_key": "Order_ID"` *(points to the source column name or 0-based column index)*
-  - `"condition_source_key": "Status"` *(points to routing column name or index)*
-  - `"path": "orders.line_items"` *(structural tree coordinate)*
-  - `"group_by": ["order_id"]` *(grouping key identifiers)*
+1. **Declarations & Identifiers (Plain Strings, NO `{}` or `${}`)**:
+   - `"payload_key": "order_id"` *(declares the alias / mapped property identifier)*
+   - `"source_key": "Order_ID"` *(points to the source column name or 0-based column index)*
+   - `"condition_source_key": "Status"` *(points to routing column name or index)*
+   - `"path": "orders.line_items"` *(structural tree coordinate)*
+   - `"group_by": ["order_id"]` *(grouping key identifiers)*
 
-* **Dynamic Placeholders & References (MUST USE `{}`)**:
-  - `payload_template`: `"order_id": "{order_id}"` *(signals a placeholder to be hydrated)*
-  - `formula`: `"lower({Location}) & '-' & {Batch_Number}"` *(signals columns to be evaluated)*
+2. **Source Column References (`{source_col}`)**:
+   - Strictly references a column directly from the source DataFrame / CSV:
+     - `payload_template`: `"orderId": "{Order_ID}"` *(direct injection from source row)*
+     - `formula`: `"lower({Location}) & '-' & {Batch_Number}"` *(evaluates raw source columns)*
+
+3. **Config Aliases & Mapped References (`${alias_name}`)**:
+   - Refers to an aliased variable or formula defined in `mappings` via `payload_key`:
+     - `payload_template`: `"fullName": "${full_name}"` *(references mapping `payload_key: "full_name"`)*
+     - `payload_template`: `"tax": "${calc_tax}"` *(references formula `payload_key: "calc_tax"`)*
+
+4. **Engine Injection Macros (`${payload_template}` or `${payload}`)**:
+   - In `wrapper_envelope`, use `"${payload_template}"` or `"${payload}"` as the injection anchor for batch data. Because of the `$` prefix, it is guaranteed never to collide with any source column literally named `payload_template`.
 
 ### Why Formulas Require Braces `{col}`
 Enclosing column names in `{}` within formulas is essential:
@@ -253,7 +262,7 @@ You can concatenate multiple columns, literals, and transforms using either:
 
 Enterprise APIs (e.g., ADP, Workday, Salesforce) commonly wrap batch payload arrays inside boilerplate envelopes with headers and service metadata. 
 
-Use **`wrapper_envelope`** directly inside any condition with the `"{payload_template}"` (or `"{payload}"`) placeholder. The engine will chunk and reconcile the business data inside `payload_template`, then seamlessly inject the batch into the envelope:
+Use **`wrapper_envelope`** directly inside any condition with the `"${payload_template}"` (or `"${payload}"`) macro. The engine will chunk and reconcile the business data inside `payload_template`, then seamlessly inject the batch into the envelope:
 
 ```json
 {
@@ -266,7 +275,7 @@ Use **`wrapper_envelope`** directly inside any condition with the `"{payload_tem
           "timestamp": "{created_at}"
         },
         "payload": {
-          "orders": "{payload_template}"
+          "orders": "${payload_template}"
         }
       },
       "payload_template": [
@@ -281,7 +290,7 @@ Use **`wrapper_envelope`** directly inside any condition with the `"{payload_tem
 }
 ```
 
-Any `{...}` placeholders in the wrapper (such as `{batch_id}` and `{created_at}`) are automatically populated from the batch's representative record.
+Any `{...}` placeholders in the wrapper (such as `{batch_id}` and `{created_at}`) are populated from the batch's representative record (or via `${alias}` if defined in `mappings`).
 
 ---
 
