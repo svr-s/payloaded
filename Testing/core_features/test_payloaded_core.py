@@ -2293,5 +2293,111 @@ def test_sequence_in_nested_dicts_increment_once():
     assert items[2]["actionCode"]["codeValue"] == "OUT"
 
 
+def test_sequence_field_level_isolation_independent_counters():
+    """Verify that multiple sequence formulas with different fields do not collide or share counters."""
+    df = pd.DataFrame([
+        {"dept": "HR", "val": 10},
+        {"dept": "HR", "val": 20},
+        {"dept": "IT", "val": 30},
+    ])
+
+    config = {
+        "condition_source_key": "",
+        "conditions": [
+            {
+                "condition_rule": [],
+                "payload_template": [
+                    {
+                        "seqA": "${seqA}",
+                        "seqB": "${seqB}",
+                        "dept": "${dept}",
+                    }
+                ],
+                "entities": [
+                    {
+                        "path": "root",
+                        "mappings": [
+                            {"payload_key": "seqA", "formula": "sequence(start=1, scope='global')"},
+                            {"payload_key": "seqB", "formula": "sequence(start=100, scope='global')"},
+                            {"payload_key": "dept", "source_key": "dept"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    df_payloads, _ = pld.build_payloads(source=df, config=config, output_format="dict")
+    items = df_payloads["payload"].iloc[0]
+    assert len(items) == 3
+
+    # seqA must be 1, 2, 3 and seqB must be 100, 101, 102 (not colliding)
+    assert items[0]["seqA"] == 1
+    assert items[0]["seqB"] == 100
+    assert items[1]["seqA"] == 2
+    assert items[1]["seqB"] == 101
+    assert items[2]["seqA"] == 3
+    assert items[2]["seqB"] == 102
+
+
+def test_sequence_parent_scope_resets_on_ungrouped_chunked_parent_items():
+    """Verify parent-scoped sequence resets across chunked parent items when root has no group_by."""
+    df = pd.DataFrame([{"val": i} for i in range(25)])
+
+    config = {
+        "condition_source_key": "",
+        "conditions": [
+            {
+                "condition_rule": [],
+                "payload_template": [
+                    {
+                        "itemID": "${itemID}",
+                        "entries": [
+                            {
+                                "entryID": "${entryID}",
+                                "val": "${val}",
+                            }
+                        ],
+                    }
+                ],
+                "entities": [
+                    {
+                        "path": "root",
+                        "repeat_limit": 5,
+                        "group_by": [],
+                        "mappings": [
+                            {"payload_key": "itemID", "formula": "sequence(start=1, scope='global')"},
+                        ],
+                    },
+                    {
+                        "path": "entries",
+                        "repeat_limit": 20,
+                        "group_by": [],
+                        "mappings": [
+                            {"payload_key": "entryID", "formula": "sequence(start=1, scope='parent')"},
+                            {"payload_key": "val", "source_key": "val"},
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+    df_payloads, _ = pld.build_payloads(source=df, config=config, output_format="dict")
+    items = df_payloads["payload"].iloc[0]
+    assert len(items) == 2
+
+    # First item: 20 entries, entryID 1..20
+    assert items[0]["itemID"] == 1
+    assert len(items[0]["entries"]) == 20
+    assert [e["entryID"] for e in items[0]["entries"]] == list(range(1, 21))
+
+    # Second item: 5 entries, entryID resets to 1..5
+    assert items[1]["itemID"] == 2
+    assert len(items[1]["entries"]) == 5
+    assert [e["entryID"] for e in items[1]["entries"]] == list(range(1, 6))
+
+
+
 
 

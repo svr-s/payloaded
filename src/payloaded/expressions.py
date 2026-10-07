@@ -263,12 +263,14 @@ class SafeASTEvaluator:
         gen_context: Optional[GeneratorContext] = None,
         parent_id: Optional[str] = None,
         payload_index: int = 0,
+        field_id: Optional[str] = None,
     ):
         self.tree = tree
         self.col_alias_to_col = col_alias_to_col
         self.gen_context = gen_context or GeneratorContext()
         self.parent_id = parent_id
         self.payload_index = payload_index
+        self.field_id = field_id
 
     def evaluate(self, row_dict: Dict[Any, Any]) -> Any:
         """Evaluate tree against a dictionary representing the current row."""
@@ -372,7 +374,8 @@ class SafeASTEvaluator:
                 start = kwargs.get("start", args[0] if len(args) > 0 else 1)
                 step = kwargs.get("step", args[1] if len(args) > 1 else 1)
                 scope = kwargs.get("scope", args[2] if len(args) > 2 else "parent")
-                gen_id = kwargs.get("id", str(node.lineno if hasattr(node, "lineno") else "seq"))
+                fallback_id = self.field_id or str(node.lineno if hasattr(node, "lineno") else "seq")
+                gen_id = kwargs.get("id", fallback_id)
                 return self.gen_context.next_sequence(
                     gen_id=str(gen_id),
                     start=int(start),
@@ -459,6 +462,7 @@ class CompiledFormula:
         gen_context: Optional[GeneratorContext] = None,
         parent_id: Optional[str] = None,
         payload_index: int = 0,
+        field_id: Optional[str] = None,
     ) -> Any:
         """Evaluate the pre-compiled formula against a row dictionary."""
         evaluator = SafeASTEvaluator(
@@ -467,5 +471,6 @@ class CompiledFormula:
             gen_context=gen_context,
             parent_id=parent_id,
             payload_index=payload_index,
+            field_id=field_id,
         )
         return evaluator.evaluate(row)

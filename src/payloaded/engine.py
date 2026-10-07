@@ -460,14 +460,27 @@ class HierarchyEngine:
                         sub_df, child_elem_template, child, grandchildren, parent_id=root_id
                     )
                     child_items.extend(c_items)
+                chunks = _split_into_chunks(child_items, child.repeat_limit)
+            elif child.repeat_limit and not root_group_cols:
+                # When root has no group_by, each repeat_limit chunk becomes its own root parent item instance.
+                # Chunk the underlying dataframe first so parent-scoped sequences reset cleanly per chunk/parent item.
+                sub_dfs = [
+                    group_df.iloc[k : k + child.repeat_limit]
+                    for k in range(0, len(group_df), child.repeat_limit)
+                ]
+                chunks = []
+                for c_idx, s_df in enumerate(sub_dfs):
+                    c_items = self._process_child_element(
+                        s_df, child_elem_template, child, grandchildren, parent_id=f"{root_id}_{c_idx}"
+                    )
+                    chunks.append(c_items)
             else:
                 c_items = self._process_child_element(
                     group_df, child_elem_template, child, grandchildren, parent_id=root_id
                 )
                 child_items.extend(c_items)
+                chunks = _split_into_chunks(child_items, child.repeat_limit)
 
-            # Chunk child items by child.repeat_limit
-            chunks = _split_into_chunks(child_items, child.repeat_limit)
             direct_child_chunks[child_path] = (child, chunks)
 
         # Determine total number of payloads needed for this root element
@@ -805,11 +818,13 @@ class HierarchyEngine:
             if entity:
                 for m in entity.mappings:
                     if m.formula and m.compiled_formula:
+                        field_id = f"{entity.path}.{m.payload_key}" if entity.path else m.payload_key
                         val = m.compiled_formula.evaluate(
                             source_record,
                             gen_context=self.gen_context,
                             parent_id=parent_id,
                             payload_index=payload_index,
+                            field_id=field_id,
                         )
                         lookup[m.payload_key] = val
                     else:
