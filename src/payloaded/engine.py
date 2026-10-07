@@ -796,39 +796,42 @@ class HierarchyEngine:
         entity: Optional[EntityConfig],
         parent_id: str = "root",
         payload_index: int = 0,
+        lookup: Optional[Dict[str, Any]] = None,
     ) -> dict:
         """Recursively hydrate scalar values in a template dictionary."""
-        # Create a lookup mapping for this entity or global
-        lookup: Dict[str, Any] = {}
-        if entity:
-            for m in entity.mappings:
-                if m.formula and m.compiled_formula:
-                    val = m.compiled_formula.evaluate(
-                        source_record,
-                        gen_context=self.gen_context,
-                        parent_id=parent_id,
-                        payload_index=payload_index,
-                    )
-                    lookup[m.payload_key] = val
-                else:
-                    matched_col = self.resolved_source_col.get(m.payload_key)
-                    if matched_col is not None and matched_col in source_record:
-                        val = source_record[matched_col]
-                        lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
-                    elif m.payload_key in source_record:
-                        val = source_record[m.payload_key]
-                        lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+        # Create a lookup mapping for this entity or global if not already pre-evaluated
+        if lookup is None:
+            lookup = {}
+            if entity:
+                for m in entity.mappings:
+                    if m.formula and m.compiled_formula:
+                        val = m.compiled_formula.evaluate(
+                            source_record,
+                            gen_context=self.gen_context,
+                            parent_id=parent_id,
+                            payload_index=payload_index,
+                        )
+                        lookup[m.payload_key] = val
                     else:
-                        lookup[m.payload_key] = m.default
-        # Fallback to any matching key in source_record
-        for k, v in source_record.items():
-            if k not in lookup:
-                lookup[k] = v
+                        matched_col = self.resolved_source_col.get(m.payload_key)
+                        if matched_col is not None and matched_col in source_record:
+                            val = source_record[matched_col]
+                            lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                        elif m.payload_key in source_record:
+                            val = source_record[m.payload_key]
+                            lookup[m.payload_key] = m.default if (pd.isna(val) and m.default is not None) else val
+                        else:
+                            lookup[m.payload_key] = m.default
+            # Fallback to any matching key in source_record
+            for k, v in source_record.items():
+                if k not in lookup:
+                    lookup[k] = v
 
         hydrated = {}
         for key, val in template_obj.items():
             if isinstance(val, dict):
-                hydrated[key] = self._hydrate_dict(val, source_record, entity, parent_id, payload_index)
+                # Pass existing lookup down to nested sub-dictionaries so formulas/sequences are not re-evaluated
+                hydrated[key] = self._hydrate_dict(val, source_record, entity, parent_id, payload_index, lookup=lookup)
             elif isinstance(val, list):
                 # Sub-arrays are populated during hierarchical processing
                 hydrated[key] = copy.deepcopy(val)

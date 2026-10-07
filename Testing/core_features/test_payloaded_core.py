@@ -2234,4 +2234,64 @@ def test_dollar_alias_syntax_and_envelope():
     assert emp["role"] == "ENG"
 
 
+def test_sequence_in_nested_dicts_increment_once():
+    """Verify that a sequence formula in an entity containing nested dicts only increments once per record."""
+    df = pd.DataFrame([
+        {"badge": "B01", "code": "REG", "action": "IN"},
+        {"badge": "B02", "code": "REG", "action": "IN"},
+        {"badge": "B03", "code": "OVT", "action": "OUT"},
+    ])
+
+    config = {
+        "condition_source_key": "",
+        "conditions": [
+            {
+                "condition_rule": [],
+                "payload_template": [
+                    {
+                        "entryID": "${entryID}",
+                        "entryCode": {
+                            "codeValue": "${codeValue}"
+                        },
+                        "badgeID": "${badgeID}",
+                        "actionCode": {
+                            "codeValue": "${actionVal}"
+                        },
+                    }
+                ],
+                "entities": [
+                    {
+                        "path": "root",
+                        "mappings": [
+                            {"payload_key": "entryID", "formula": "sequence(start=1, scope='global')"},
+                            {"payload_key": "codeValue", "source_key": "code"},
+                            {"payload_key": "badgeID", "source_key": "badge"},
+                            {"payload_key": "actionVal", "source_key": "action"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    df_payloads, _ = pld.build_payloads(source=df, config=config, output_format="dict")
+    assert len(df_payloads) == 1
+    items = df_payloads["payload"].iloc[0]
+    assert len(items) == 3
+
+    # Ensure sequence increments 1, 2, 3 (not 1, 4, 7 due to nested dict evaluation)
+    assert items[0]["entryID"] == 1
+    assert items[0]["entryCode"]["codeValue"] == "REG"
+    assert items[0]["actionCode"]["codeValue"] == "IN"
+
+    assert items[1]["entryID"] == 2
+    assert items[1]["entryCode"]["codeValue"] == "REG"
+    assert items[1]["actionCode"]["codeValue"] == "IN"
+
+    assert items[2]["entryID"] == 3
+    assert items[2]["entryCode"]["codeValue"] == "OVT"
+    assert items[2]["actionCode"]["codeValue"] == "OUT"
+
+
+
 
